@@ -6,5 +6,35 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, include = FALSE, warning = FALSE)
 ```
+
+```{r packages}
+library(preprocessMA)
+library(compareRhythms)
+library(genefilter)
+library(SummarizedExperiment)
+```
+
+## Revealing example using liver data
+
+```{r get_liver_data}
+geo <- get_geo("GSE11923")
+raw_file_name <- get_raw_files("GSE11923")
+pkg <- install_brainarray("mouse4302", annot = "ensg")
+cel_files <- as.character(SummarizedExperiment::colData(geo)[["supplementary_file"]])
+eset <- read_celfiles(raw_file_name, cel_files,platform_design = pkg)
+data <- update_se(geo, eset)
+```
+```{r filter}
+N <- dim(data)[2]
+f1 <- kOverA(N, 4)
+ffun <- filterfun(f1)
+wh <- genefilter(assay(data), ffun)
+filtered_data <- data[wh, ]
+```
+
+```{r}
+
+```
+
