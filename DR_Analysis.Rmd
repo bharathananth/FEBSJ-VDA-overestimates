@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE, include = FALSE, warning = FALSE)
 ```
 
 ```{r packages}
-library(preprocessMA)
 library(compareRhythms)
 library(genefilter)
 library(SummarizedExperiment)
@@ -18,23 +17,26 @@ library(SummarizedExperiment)
 
 ## Revealing example using liver data
 
-```{r get_liver_data}
-geo <- get_geo("GSE11923")
-raw_file_name <- get_raw_files("GSE11923")
-pkg <- install_brainarray("mouse4302", annot = "ensg")
-cel_files <- as.character(SummarizedExperiment::colData(geo)[["supplementary_file"]])
-eset <- read_celfiles(raw_file_name, cel_files,platform_design = pkg)
-data <- update_se(geo, eset)
-```
-```{r filter}
-N <- dim(data)[2]
-f1 <- kOverA(N, 4)
-ffun <- filterfun(f1)
-wh <- genefilter(assay(data), ffun)
-filtered_data <- data[wh, ]
+```{r load-hughes-data}
+liver_hughes <- readRDS("data/GSE11923.RDS")
+
+f1 <- kOverA(48, 4)
+sel <- genefilter(assay(liver_hughes), f1)
+
+liver_hughes <- liver_hughes[sel, ]
+
+exp_design <- as.data.frame(colData(liver_hughes))
+exp_design$group <- ifelse(exp_design$time %% 2, "O", "E")
 ```
 
-```{r}
+```{r analyze-odd-even}
+
+results_MC <- compareRhythms_model_select(assay(liver_hughes), exp_design)
+
+results_rain <- compareRhythms_rain(assay(liver_hughes), exp_design)
+
+results_limma <- compareRhythms_limma(assay(liver_hughes), exp_design)
+
 
 ```
 
