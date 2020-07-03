@@ -5,37 +5,578 @@ date: "09/03/2020"
 output: pdf_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, include = FALSE, warning = FALSE)
-```
-
-```{r packages}
+```{r packages, echo=FALSE}
 library(compareRhythms)
-library(genefilter)
-library(SummarizedExperiment)
+suppressPackageStartupMessages(library(genefilter))
+suppressPackageStartupMessages(library(SummarizedExperiment))
+suppressPackageStartupMessages(library(rain))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(DODR))
+suppressPackageStartupMessages(library(patchwork))
+library(parallel)
+library(ggthemes)
+suppressPackageStartupMessages(library(gridExtra))
 ```
 
-## Revealing example using liver data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning = FALSE, fig.height = 3)
+amp_choices <- c(0, 0.5)
+```
+
+```{r custom_theme}
+theme_custom <- function(base_size = 11, base_family = "Helvetica") {
+  theme_foundation(base_size = base_size, base_family = base_family) +
+    theme(
+      line = element_line(size = base_size/11, color = "grey20"),
+      rect = element_rect(fill = "white", size = base_size/15),
+      text = element_text(size = base_size),
+      plot.margin = margin(0.2, 0.2, 0.2, 0.2, unit = "lines"),
+      plot.background = element_rect(linetype = 0),
+      
+      panel.border = element_blank(),
+      panel.background = element_blank(),
+      
+      axis.line = element_line(size = rel(0.6)),
+      axis.text = element_text(size = rel(0.95)),
+      axis.text.x.bottom = element_text(vjust = 0.25),
+      axis.text.y.right = element_text(hjust = 0.25),
+
+      axis.ticks = element_line(size = rel(0.6)),
+      axis.ticks.length = unit(0.4, "lines"),
+      axis.title = element_text(size = rel(1)),
+      axis.title.x.bottom = element_text(vjust = 0),
+      axis.title.y.left = element_text(vjust = 1),
+      
+      legend.background = element_rect(),
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      legend.title = element_text(size = rel(0.95)),
+      legend.text = element_text(size = rel(0.95)),
+      legend.box.spacing = unit(0.25, "lines"),
+      legend.key = element_rect(color = NA),
+      legend.key.size = unit(1.5, "lines"),
+      legend.box.background = element_blank(),
+      legend.margin = margin(t = 0, unit = "lines"),
+      
+      panel.grid = element_line(size = rel(0.33)),
+      panel.grid.major = element_line(color = "grey80"),
+      panel.grid.minor = element_blank(),
+
+      strip.text = element_text(size = rel(0.95)),
+      strip.background = element_blank(),
+      panel.spacing = unit(1, "lines"),
+      
+      plot.tag = element_text(face = "bold"),
+      plot.caption = element_blank(),
+      plot.title = element_blank(),
+      plot.subtitle = element_blank(),
+
+      aspect.ratio = 0.75
+    )
+}
+theme_set(theme_custom())
+update_geom_defaults("line", list(size = 0.8))
+```
+
+
+```{r functions}
+rhythm_analysis <- function(y, exp_design, period = 24) {
+
+  exp_design <- base::cbind(exp_design,
+                            col_number = base::seq(base::nrow(exp_design)))
+
+  group_id <- base::unique(exp_design$group)
+  assertthat::are_equal(length(group_id), 2)
+
+  exp_design_A <- exp_design[exp_design$group == group_id[1], ]
+
+  exp_design_A <- exp_design_A[base::order(exp_design_A$time), ]
+
+  exp_design_B <- exp_design[exp_design$group == group_id[2], ]
+
+  exp_design_B <- exp_design_B[base::order(exp_design_B$time), ]
+
+  deltat_A <- min(diff(base::unique(exp_design_A$time)))
+
+  time_A <- base::seq(min(exp_design_A$time),
+                      max(exp_design_A$time),
+                      by = deltat_A)
+
+  unique_times_A <- table(exp_design_A$time)
+
+  measure_sequence_A <- vapply(time_A,
+                                     function(t) {
+                                       ifelse(any(names(unique_times_A) == t),
+                                              unique_times_A[names(unique_times_A) == t],
+                                              0)
+                                     },
+                                     integer(1))
+
+
+  deltat_B <- min(diff(unique(exp_design_B$time)))
+
+  time_B <- seq(min(exp_design_B$time),
+                      max(exp_design_B$time),
+                      by = deltat_B)
+
+  unique_times_B <- table(exp_design_B$time)
+
+  measure_sequence_B <- vapply(time_B,
+                               function(t) {
+                                 ifelse(any(names(unique_times_B) == t),
+                                        unique_times_B[names(unique_times_B) == t],
+                                        0)
+                               },
+                               integer(1))
+
+  y_A <- y[, exp_design_A$col_number]
+  y_B <- y[, exp_design_B$col_number]
+
+  assertthat::assert_that((sum(measure_sequence_A) >= 12) && (sum(measure_sequence_B) >= 12),
+                          msg = "Not enough samples to run RAIN rhythmicity analysis confidently.")
+
+  rain_A <- mcparallel(rain(t(y_A), deltat_A, period,
+                       measure.sequence = measure_sequence_A), "A")
+
+  rain_B <- mcparallel(rain(t(y_B), deltat_B, period,
+                       measure.sequence = measure_sequence_B), "B")
+  rain_analysis <- mccollect(list(rain_A, rain_B))
+
+  circ_params_A <- compute_circ_params(y_A, exp_design_A$time, period = period)
+
+  circ_params_B <- compute_circ_params(y_B, exp_design_B$time, period = period)
+  
+  rain_results <- data.frame(adj_p_val_A = p.adjust(rain_analysis[[1]][, "pVal"], method = "BH"),
+                             adj_p_val_B = p.adjust(rain_analysis[[2]][, "pVal"], method = "BH"),
+                             A_amp = circ_params_A,
+                             B_amp = circ_params_B)
+   
+  rownames(rain_results) <- rownames(y)
+  return(rain_results)
+}
+
+compute_circ_params <- function(y, t, period) {
+
+  inphase <- cos(2 * pi * t / period)
+  outphase <- sin(2 * pi * t / period)
+
+  X <- model.matrix(~inphase + outphase)
+
+  fit <- lm.fit(X, t(y))
+
+  amps <- 2 * sqrt(base::colSums(fit$coefficients[-1, ]^2))
+
+  return(amps)
+
+}
+
+diff_rhythmicity_analysis <- function(y, exp_design, results, rhythm_fdr = 0.05, amp_cutoff = 0, period = 24) {
+  rhythmic_in_either <- (results$adj_p_val_A < rhythm_fdr & results$A_amp > amp_cutoff) | 
+                          (results$adj_p_val_B < rhythm_fdr & results$B_amp > amp_cutoff)
+  
+  group_id <- base::unique(exp_design$group)
+
+  dodr_results <- robustDODR(t(y[rhythmic_in_either, exp_design$group == group_id[1]]), 
+                       t(y[rhythmic_in_either, exp_design$group == group_id[2]]),
+                       exp_design$time[exp_design$group == group_id[1]],
+                       exp_design$time[exp_design$group == group_id[2]],
+                       norm = FALSE, 
+                       period = period)
+  dodr_results$adj_p_val <- stats::p.adjust(dodr_results$p.value, method = "BH")
+  
+  return(dodr_results)
+}
+```
+
+## Problem
+We are interested in comparing rhythms across two different conditions or treatments. In particular, we would like to know how many time series are differential rhythmic and what are these species. We are using a genomic dataset, but ideas apply to comparison of any two datasets.
+
+
+```{r pvm-venn, fig.width=4, eval=FALSE}
+f1_1 <- ggplot() +
+  annotate("polygon", x = 0.15*cos(seq(0, 2*pi, length.out = 100)),
+           y = 0.15*sin(seq(0, 2*pi, length.out = 100)), fill="grey10", alpha = 0.25, color = "black") +
+  annotate("polygon", x = 0.18 + 0.15*cos(seq(0, 2*pi, length.out = 100)),
+           y = 0.15*sin(seq(0, 2*pi, length.out = 100)), fill="grey10", alpha = 0.25, color = "black") +
+  annotate("text", x = 0, y = 0.17, label=parse(text = "q[A] < 0.05"), size=3.5) +
+  annotate("text", x = 0.18, y = 0.17, label=parse(text = "q[B] < 0.05"), size = 3.5) +
+  annotate("text", x = 0.09, y = 0, label="rhythmic \n in both", size = 3.5, color = "white") +
+  annotate("text", x = -0.05, y = 0, label="differentially \n rhythmic \n (only in A)", size = 3.5, color = "black") +
+  annotate("text", x = 0.23, y = 0, label="differentially \n rhythmic \n (only in B)", size = 3.5, color = "black") +
+  theme_void() + theme(plot.tag = element_text(face = "bold"), plot.margin = margin(l=10, r=20)) + coord_fixed(ratio = 1, expand = FALSE, clip = "off")
+```
+
+## Revealing examples using liver data
+
+* Liver dataset from Hughes et al. was sampled every 1h over 2 days -- highest resolution available
+* We create a pair of artificial time series datasets by splitting the data into 2
+    + collect *even* and *odd* time points to form two datasets samples every 2h over 2 days each
+* Test this pair of datasets of differential rhythmic genes using the common approach
+* Due to our construction, we expect no DR genes in this set. 
 
 ```{r load-hughes-data}
 liver_hughes <- readRDS("data/GSE11923.RDS")
 
-f1 <- kOverA(48, 4)
+f1 <- kOverA(48, 5)
 sel <- genefilter(assay(liver_hughes), f1)
 
 liver_hughes <- liver_hughes[sel, ]
 
+## ----------create artificial group of odd and even samples -------##
 exp_design <- as.data.frame(colData(liver_hughes))
+exp_design$time <- as.numeric(do.call(rbind, strsplit(as.character(liver_hughes$title), " ", fixed = TRUE))[,3])
 exp_design$group <- ifelse(exp_design$time %% 2, "O", "E")
 ```
 
-```{r analyze-odd-even}
+```{r analyze-odd-even, fig.width=4, eval=FALSE}
+pvm_ex_1 <- rhythm_analysis(assay(liver_hughes), exp_design)
 
-results_MC <- compareRhythms_model_select(assay(liver_hughes), exp_design)
+df_1_2 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
+                  amp_cutoff = amp_choices)
+df_1_2$no_of_DR <- vapply(seq(nrow(df_1_2)),
+                   function(i) {
+                     return(sum(xor(pvm_ex_1$adj_p_val_A < df_1_2[i, "fdr_cutoff"] &
+                                    pvm_ex_1$A_amp > df_1_2[i, "amp_cutoff"],
+                                    pvm_ex_1$adj_p_val_B < df_1_2[i, "fdr_cutoff"] &
+                                    pvm_ex_1$B_amp > df_1_2[i, "amp_cutoff"])))
+                   }, FUN.VALUE = numeric(1))
+df_1_2$percent <- df_1_2$no_of_DR/nrow(liver_hughes)
 
-results_rain <- compareRhythms_rain(assay(liver_hughes), exp_design)
+f1_2 <- ggplot(df_1_2) + 
+  geom_line(aes_(x=~fdr_cutoff, y=~percent, linetype=~factor(amp_cutoff))) +
+  scale_linetype_manual(name = "", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) +
+  scale_y_continuous(labels = scales::percent) + xlab("false discovery cutoff") +
+  ylab("diff. rhythmic genes") + coord_cartesian(xlim = c(0.0005,0.2)) +
+  scale_x_continuous(trans = "log10", breaks = c(0.001, 0.01, 0.05, 0.2)) +
+  annotate("line", x = c(10^-3.4, 10^-2.25), y = 0.32) +
+  annotate("point", x = 10^(seq(-3.25, -2.5, by = 0.25)), y = 0.32, size = 3.5, color="grey20") +
+  annotate("point", x = 10^(seq(-3, -2.5, by = 0.5)), y = 0.32, shape = "O", color = "white", size = 1.75) +
+  annotate("point", x = 10^(seq(-3.25, -2.25, by = 0.5)), y = 0.32, shape = "E", color = "white", size = 1.75)
+```
 
-results_limma <- compareRhythms_limma(assay(liver_hughes), exp_design)
+* for a range of FDR cutoffs for the rhythmicity in each dataset, anywhere from 10-20% DR genes are found
+* these are all false positives as there are no DR genes in this set
+* for the typical 0.05 choice of cutoff, the standard method yields 25% false positives
+* A variant of this method, also uses an amplitude threshold to enforce biological relevance.
+* The amplitude threshold does drastically reduce the number of false positive, but still not eliminated.
+
+* Downsampled liver time series with a sample every 2h also shows large number of false positives
+* But the a certain level of false positives occurs at larger FDR cutoffs -- since p-values are larger in the lower resolution data.
+```{r artificial-DR-dataset, eval=FALSE}
+##--------create artificial DR genes by exchanging labels of genes-------##
+N <- round(0.1*nrow(liver_hughes))
+
+large_amp_genes <- pvm_ex_1[pvm_ex_1$A_amp > 0.25, ]
+
+rhythmic_in_A <- rownames(large_amp_genes)[order(large_amp_genes$adj_p_val_A)[seq(min(N, nrow(large_amp_genes)))]]
+
+new_expr <- assay(liver_hughes)
+
+for (gene in rhythmic_in_A) {
+  temp <- new_expr[gene, ]
+  temp[exp_design$group == "O"] <- sample(temp[exp_design$group == "O"])
+  new_expr[gene, ] <- temp
+}
+```
+
+```{r artificial-DR-data-analysis, fig.width = 5.5, fig.height=5, eval=FALSE}
+pvm_ex_2 <- rhythm_analysis(new_expr, exp_design)
+
+df_1_3 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
+                  amp_cutoff = amp_choices)
+true_dr_genes <- rownames(pvm_ex_2) %in% rhythmic_in_A
+
+roc <- vapply(seq(nrow(df_1_3)),
+              function(i) {
+                est_dr_genes <- xor(pvm_ex_2$adj_p_val_A < df_1_3[i, "fdr_cutoff"] &
+                                      pvm_ex_2$A_amp > df_1_3[i, "amp_cutoff"],
+                                    pvm_ex_2$adj_p_val_B < df_1_3[i, "fdr_cutoff"] &
+                                      pvm_ex_2$B_amp > df_1_3[i, "amp_cutoff"])
+                tp <- sum(true_dr_genes & est_dr_genes)
+                fp <- sum(!true_dr_genes & est_dr_genes)
+                return(c(TP = tp, FP = fp))
+              }, FUN.VALUE = numeric(2))
+df_1_3 <- cbind(df_1_3, t(roc))
+
+f1_3 <- ggplot(df_1_3) + 
+  geom_area(aes_(x=~fdr_cutoff, y=~FP+TP), color = "black", fill = "white") + 
+  geom_area(aes_(x=~fdr_cutoff, y=~TP), fill = "grey70", position="identity", alpha=0.75) +
+  facet_wrap(~factor(amp_cutoff), nrow = 1, 
+             labeller = as_labeller(setNames(paste0('~A>', amp_choices), amp_choices), label_parsed)) +
+  geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash", size = 0.6)  + 
+  xlab("false discovery cutoff for rhythms") + ylab("diff. rhythmic genes") + 
+  scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.001, 0.01, 0.05)) +
+  coord_cartesian(xlim = c(0.0005,0.2)) + scale_y_continuous(expand = c(0.01,0))
+
+layout <- c(area(1,1), area(1, 2), area(2, 1, 2, 2))
+
+wrap_elements(full = f1_1) + f1_2 + f1_3 + plot_layout(design = layout, widths = c(2,3)) + plot_annotation(tag_levels = 'a')
+```
+
+* for all typical choices of fdr cutoff, larger number of DR genes are predicted by PVM
+* However, the predicted DR genes account for only for 80% of true DR genes
+* Large numbers of false DR (false positives) genes
+* Notice the number of true DR genes in set varies non-monotonically.
+* Using an amplitude cutoff, controls the inflation in the number of DR genes, but at the cost of even fewer true hits (lower power)
+
+```{r hughes-data-supp, eval=FALSE}
+liver_hughes_sub <- liver_hughes[, exp_design$time %% 2 == 0]
+exp_design_sub <- exp_design[exp_design$time %% 2 == 0, ]
+exp_design_sub$group <- ifelse(exp_design_sub$time %% 4, "O", "E")
+```
+
+```{r analyze-odd-even-supp, fig.width=4, eval=FALSE}
+pvm_ex_S1 <- rhythm_analysis(assay(liver_hughes_sub), exp_design_sub)
+
+df_S1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
+                  amp_cutoff = amp_choices)
+df_S1_1$no_of_DR <- vapply(seq(nrow(df_S1_1)),
+                   function(i) {
+                     return(sum(xor(pvm_ex_S1$adj_p_val_A < df_S1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_S1$A_amp > df_S1_1[i, "amp_cutoff"],
+                                    pvm_ex_S1$adj_p_val_B < df_S1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_S1$B_amp > df_S1_1[i, "amp_cutoff"])))
+                   }, FUN.VALUE = numeric(1))
+df_S1_1$percent <- df_S1_1$no_of_DR/nrow(liver_hughes)
+
+fS1_1 <- ggplot(df_S1_1) + 
+  geom_line(aes_(x=~fdr_cutoff, y=~percent, linetype=~factor(amp_cutoff))) +
+  theme(legend.position = "top", legend.margin=margin(0,0,0,0)) + 
+  scale_linetype_manual(name = "", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) +
+  scale_y_continuous(labels = scales::percent) + xlab("false discovery cutoff for rhythms") +
+  ylab("diff. rhythmic genes") + coord_cartesian(xlim = c(0.005,0.25)) + 
+  scale_x_continuous(trans = "log10", breaks = c(0.01, 0.05, 0.2)) +
+    annotate("line", x = c(10^-2.3, 10^-1.35), y = 0.32) +
+  annotate("point", x = 10^(seq(-2.2, -1.4, by = 0.15)), y = 0.32, size = 3.5, color = "grey20") +
+    annotate("point", x = 10^(seq(-2.05, -1.4, by = 0.3)), y = 0.32, size = 3, color = "grey90") +
+  annotate("point", x = 10^(seq(-2.2, -1.4, by = 0.6)), y = 0.32, shape = "E", color = "white", size = 1.75) +
+    annotate("point", x = 10^(seq(-1.9, -1.4, by = 0.6)), y = 0.32, shape = "O", color = "white", size = 1.75)
+```
+
+```{r artificial-DR-data-supp, eval=FALSE}
+N <- 1000
+
+large_amp_genes <- pvm_ex_S1[pvm_ex_S1$A_amp > 0.5, ]
+
+rhythmic_in_A <- rownames(large_amp_genes)[order(large_amp_genes$adj_p_val_A)[seq(min(N, nrow(large_amp_genes)))]]
+
+new_expr_sub <- assay(liver_hughes_sub)
+
+for (gene in rhythmic_in_A) {
+  temp <- new_expr_sub[gene, ]
+  temp[exp_design_sub$group == "O"] <- sample(temp[exp_design_sub$group == "O"])
+  new_expr_sub[gene, ] <- temp
+}
+```
+
+```{r artificial-DR-data-analysis-supp, fig.width=5, fig.height=5, eval=FALSE}
+pvm_ex_S2 <- rhythm_analysis(new_expr_sub, exp_design_sub)
+
+df_S1_2 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
+                  amp_cutoff = amp_choices)
+true_dr_genes <- rownames(pvm_ex_S2) %in% rhythmic_in_A
+
+roc <- vapply(seq(nrow(df_S1_2)),
+              function(i) {
+                est_dr_genes <- xor(pvm_ex_S2$adj_p_val_A < df_S1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_S2$A_amp > df_S1_2[i, "amp_cutoff"],
+                                    pvm_ex_S2$adj_p_val_B < df_S1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_S2$B_amp > df_S1_2[i, "amp_cutoff"])
+                tp <- sum(true_dr_genes & est_dr_genes)
+                fp <- sum(!true_dr_genes & est_dr_genes)
+                return(c(TP = tp, FP = fp))
+              }, FUN.VALUE = numeric(2))
+df_S1_2 <- cbind(df_S1_2, t(roc))
+
+fS1_2 <- ggplot(df_S1_2) + 
+  geom_area(aes_(x=~fdr_cutoff, y=~TP+FP), color="black", fill = "white") +
+  geom_area(aes_(x=~fdr_cutoff, y=~TP), fill = "grey70", alpha = 0.75, position ="identity") + 
+  facet_wrap(~factor(amp_cutoff), nrow = 1,
+             labeller = as_labeller(setNames(paste0('~A >', amp_choices), amp_choices), label_parsed)) +
+  geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash") +
+  xlab("false discovery cutoff for rhythms") + ylab("diff. rhythmic genes") + 
+  scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.01, 0.05, 0.2)) +
+  coord_cartesian(xlim = c(0.005,0.25))
+
+fS1_1 / fS1_2 + plot_annotation(tag_levels = 'a') + plot_layout(heights = c(0.47, 0.53))
+```
+
+* on the subsampled data, the p-values are larger resulting is even over estimates for less conservative thresholds.
+* for strigent cutoffs, the number of DR genes is underestimated with only a small fraction of DR genes.
+
+## Applying the appropriate methods
+```{r diff-rhy-scheme, eval=FALSE}
+pts <- seq(0, 2*pi, length.out = 100)
+f2_1 <- ggplot() +
+    annotate("rect", ymin = -1.2, ymax = 6.3, xmin = -0.5, xmax = 8.5 + 2*pi, color = "grey20", alpha = 0.25, fill = "grey80") + 
+  annotate("line", x = pts, y = sin(pts), color = "black", size = 1) +
+  annotate("line", x = 8 + pts, y = cos(pts), color = "red", size = 1) +
+  annotate("line", x = pts, y = 2.5 + sin(pts), color = "black", size = 1) +
+  annotate("line", x = 8 + pts, y = 2.5, color = "black", size = 1) +
+  annotate("line", x = pts, y = 5 , color = "black", size = 1) +
+  annotate("line", x = 8 + pts, y = 5 + sin(pts), color = "black", size = 1) +
+  annotate("line", x = pts, y = 7.5 + sin(pts) , color = "black", size = 1) +
+  annotate("line", x = 8 + pts, y = 7.5 + sin(pts), color = "black", size = 1) +
+  annotate("line", x = pts, y = 10 , color = "black", size = 1) +
+  annotate("line", x = 8 + pts, y = 10 , color = "black", size = 1) +
+  annotate("text", x =  mean(pts), y = 12, label = "A", family = "Courier", size = 4, margin=margin(b=5)) +
+  annotate("text", x =  8 + mean(pts), y = 12, label = "B", family = "Courier", size = 4, margin=margin(b=5)) +
+  annotate("text", x = -2, y = 2.5, label = "diff. rhythmic" , angle = 90, size = 3.5, margin=margin(b=5)) +
+  theme_void(base_family = "Helvetica", base_size = 11) + 
+  theme(plot.tag = element_text(face = "bold"), plot.margin = margin(l=10, r=10)) + coord_fixed(ratio = 1.5, expand = TRUE, clip = "off")
+```
+
+```{r odd-even-correct, eval=FALSE}
+df_2_2 <- expand.grid(fdr_cutoff = 0.05,
+                  amp_cutoff = amp_choices,
+                  method = c("dodr", "model"))
+
+df_2_2$no_of_DR <- vapply(seq(nrow(df_2_2)),
+                   function(i) {
+                     if (df_2_2[i, "method"] == "dodr") {
+                       DR_analysis <- diff_rhythmicity_analysis(assay(liver_hughes), exp_design, pvm_ex_1,
+                                                              rhythm_fdr = df_2_2[i, "fdr_cutoff"],
+                                                              amp_cutoff = df_2_2[i, "amp_cutoff"])
+                       return(sum(DR_analysis$adj_p_val < 0.05))
+                     }
+                     if (df_2_2[i, "method"] == "model") {
+                       DR_analysis <- compareRhythms(assay(liver_hughes), exp_design, method = "mod_sel",
+                                                              amp_cutoff = df_2_2[i, "amp_cutoff"])
+                       return(sum(DR_analysis$category %in% c("DR", "AR", "BR")))
+                     }
+                     
+                   }, FUN.VALUE = numeric(1))
+
+df_2_2$percent <- df_2_2$no_of_DR/nrow(liver_hughes)
+df_annotation <- data.frame(x = seq(0.5, 1.75, 0.25), 
+                            y = 0.0156, method = "dodr",
+                            group = rep(c("O", "E"), 3))
+f2_2 <- ggplot(df_2_2) +
+  geom_col(aes_(x=~factor(amp_cutoff), y = ~percent), fill = "grey70", color = "black", width = 0.5) +
+  facet_grid(~method, switch = "x", labeller = as_labeller(c("dodr" = "DODR", "model" = "model selection"))) + 
+  scale_y_continuous(labels = function(x) scales::percent(x, accuracy = 0.1)) + 
+  scale_x_discrete(labels = parse(text = paste0('A >', amp_choices)), name = NULL) +
+  theme(strip.placement = "outside") +
+  geom_line(aes_(x = ~x, y = ~y), color = "grey20", data = df_annotation) +
+  geom_point(aes_(x = ~x, y = ~y), color = "grey20", size = 3.5, data = df_annotation) +
+  geom_point(aes_(x = ~x, y = ~y, shape = ~group), color = "white", size = 1.75, data = df_annotation) +
+  scale_shape_identity() + ylab("diff. rhythmic genes")
+
+```
+
+```{r,  eval=FALSE}
+df_2_3 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.33), by=0.5),
+                  amp_cutoff = amp_choices)
+true_dr_genes <- rownames(pvm_ex_2) %in% rhythmic_in_A
+
+roc <- vapply(seq(nrow(df_2_3)),
+              function(i) {
+                DR_analysis <- compareRhythms(new_expr, exp_design, method = "dodr",
+                                                   rhythm_fdr = df_2_3[i, "fdr_cutoff"],
+                                                   amp_cutoff = df_2_3[i, "amp_cutoff"])
+                est_dr_gene_names <- subset(DR_analysis, category %in% c("AR", "BR", "DR"))$symbol
+                est_dr_genes <- rownames(new_expr) %in% est_dr_gene_names
+                tp <- sum(true_dr_genes & est_dr_genes)
+                fp <- sum(!true_dr_genes & est_dr_genes)
+                return(c(TP = tp, FP = fp))
+              }, FUN.VALUE = numeric(2))
+df_2_3 <- cbind(df_2_3, t(roc))
+
+f2_3 <- ggplot(df_2_3) +
+  geom_line(aes_(x = ~TP/sum(true_dr_genes), y = ~TP/(TP + FP), linetype = ~factor(amp_cutoff))) +
+  scale_linetype_manual(name = "", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) +
+  xlab("sensitivity") + ylab("precision") + coord_cartesian(xlim=c(0,1), ylim = c(0,1), expand = FALSE) +
+  theme(aspect.ratio = 0.6)
+
+```
+
+```{r , fig.height=4, fig.width=16/3, eval=FALSE}
+df_2_4 <- data.frame(amp_cutoff = amp_choices)
+
+roc <- vapply(seq(nrow(df_2_4)),
+              function(i) {
+                DR_analysis <- compareRhythms(new_expr, exp_design, method = "mod_sel",
+                                                   amp_cutoff = df_2_4[i, "amp_cutoff"])
+                est_dr_gene_names <- subset(DR_analysis, category %in% c("AR", "BR", "DR"))$symbol
+                est_dr_genes <- rownames(new_expr) %in% est_dr_gene_names
+                tp <- sum(true_dr_genes & est_dr_genes)
+                fp <- sum(!true_dr_genes & est_dr_genes)
+                return(c(TP = tp, FP = fp))
+              }, FUN.VALUE = numeric(2))
+df_2_4 <- cbind(df_2_4, t(roc))
+df_2_4$amp_cutoff <- factor(df_2_4$amp_cutoff)
+
+f2_4 <- ggplot(tidyr::gather(df_2_4, type, value, -amp_cutoff)) +
+  geom_col(aes_(x=~amp_cutoff, y = ~value, fill = ~type), color = "black", width = 0.5) +
+  geom_hline(aes_(yintercept = ~sum(true_dr_genes)), linetype = "twodash") +
+  scale_fill_manual(name = "", values = c("white", "grey70")) +
+   scale_x_discrete(labels = parse(text = paste0('A >', amp_choices)), name = NULL) + 
+  theme(legend.key.height = unit(0.2, "lines")) + ylab("diff. rhythmic genes")
+
+layout <- c(area(1,1), area(1, 2, 1, 4), area(2, 1, 2, 2), area(2, 3, 2, 4))
+
+wrap_elements(full = f2_1) + f2_2 + f2_3 + f2_4 + plot_annotation(tag_levels = 'a') + 
+  plot_layout(design = layout, heights = 1, widths = rep(1,4))
+
+```
+
+## Analysis of datasets
+
+### High-fat diet
+
+- Very few number of diff-rhythmic genes ~ 100
+```{r nut_challenge_1, fig.align="center"}
+se <- readRDS("data/GSE52333.RDS")
+exp_design <- colData(se)[, c("harvest.timepoint.ch1", "diet.ch1")]
+exp_design <- as.data.frame(exp_design)
+exp_design$time <- as.numeric(sub("ZT", "", exp_design$harvest.timepoint.ch1))
+exp_design$group <- factor(make.names(exp_design$diet.ch1))
+y_nut_1 <- assay(se, "expr")
+
+group_ids <- levels(exp_design$group)
+keep <- apply(y_nut_1, 1, function(x) median(x[exp_design$group == group_ids[1]])>5 | 
+                                median(x[exp_design$group == group_ids[2]])>5 )
+
+y_nut_1 <- y_nut_1[keep, ]
+
+res_dodr <- compareRhythms(y_nut_1, exp_design, method = "dodr", just_classify = FALSE, compare_fdr = 0.05)
+res_limma <- compareRhythms(y_nut_1, exp_design, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
+compare_res <- merge(res_dodr, res_limma, by="symbol")
+compare_res$category.x <- compare_res$category.x %in% c("DR", "AR", "BR")
+compare_res$category.y <- compare_res$category.y %in% c("DR", "AR", "BR")
+df1 <- table(compare_res$category.x, compare_res$category.y)
+rownames(df) <- NULL
+colnames(df) <- NULL
+tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
+  rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
+grid.table(df, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
+
+```
+
+```{r nut_challenge_1, fig.align="center"}
+se <- readRDS("data/PRJNA428303.RDS")
+exp_design <- colData(se)[, c("time", "group")]
+exp_design <- as.data.frame(exp_design)
+exp_design$time <- as.numeric(sub("ZT", "", exp_design$time))
+exp_design$group <- factor(exp_design$group)
+y_nut_2 <- assay(se, "countsFromAbundance")
+
+group_ids <- levels(exp_design$group)
+design <- model.matrix(~group + time, data=exp_design)
+keep <- edgeR::filterByExpr(y_nut_2, design = design, min.total.count = 25)
+
+y_nut_2 <- y_nut_2[keep, ]
+
+res_voom <- compareRhythms(y_nut_2, exp_design, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
+
+test <- merge(res_voom, res_limma, by="symbol")
+test$category.x <- test$category.x %in% c("DR", "AR", "BR")
+test$category.y <- test$category.y %in% c("DR", "AR", "BR")
+df2 <- table(test$category.x, test$category.y)
 
 
 ```
