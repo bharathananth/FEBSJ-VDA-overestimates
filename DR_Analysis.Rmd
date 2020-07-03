@@ -531,53 +531,64 @@ wrap_elements(full = f2_1) + f2_2 + f2_3 + f2_4 + plot_annotation(tag_levels = '
 - Very few number of diff-rhythmic genes ~ 100
 ```{r nut_challenge_1, fig.align="center"}
 se <- readRDS("data/GSE52333.RDS")
-exp_design <- colData(se)[, c("harvest.timepoint.ch1", "diet.ch1")]
-exp_design <- as.data.frame(exp_design)
-exp_design$time <- as.numeric(sub("ZT", "", exp_design$harvest.timepoint.ch1))
-exp_design$group <- factor(make.names(exp_design$diet.ch1))
+exp_des_nut_1 <- colData(se)[, c("harvest.timepoint.ch1", "diet.ch1")]
+exp_des_nut_1 <- as.data.frame(exp_des_nut_1)
+exp_des_nut_1$time <- as.numeric(sub("ZT", "", exp_des_nut_1$harvest.timepoint.ch1))
+exp_des_nut_1$group <- factor(make.names(exp_des_nut_1$diet.ch1))
 y_nut_1 <- assay(se, "expr")
 
-group_ids <- levels(exp_design$group)
-keep <- apply(y_nut_1, 1, function(x) median(x[exp_design$group == group_ids[1]])>5 | 
-                                median(x[exp_design$group == group_ids[2]])>5 )
+group_ids <- levels(exp_des_nut_1$group)
+keep <- apply(y_nut_1, 1, function(x) median(x[exp_des_nut_1$group == group_ids[1]])>5 | 
+                                median(x[exp_des_nut_1$group == group_ids[2]])>5 )
 
 y_nut_1 <- y_nut_1[keep, ]
 
-res_dodr <- compareRhythms(y_nut_1, exp_design, method = "dodr", just_classify = FALSE, compare_fdr = 0.05)
-res_limma <- compareRhythms(y_nut_1, exp_design, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
+res_dodr <- compareRhythms(y_nut_1, exp_des_nut_1, method = "dodr", just_classify = FALSE, compare_fdr = 0.05)
+res_limma <- compareRhythms(y_nut_1, exp_des_nut_1, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
 compare_res <- merge(res_dodr, res_limma, by="symbol")
 compare_res$category.x <- compare_res$category.x %in% c("DR", "AR", "BR")
 compare_res$category.y <- compare_res$category.y %in% c("DR", "AR", "BR")
 df1 <- table(compare_res$category.x, compare_res$category.y)
-rownames(df) <- NULL
-colnames(df) <- NULL
+rownames(df1) <- NULL
+colnames(df1) <- NULL
 tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
   rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
-grid.table(df, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
+grid.table(df1, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
+
+print(length(union(setdiff(res_dodr$symbol, res_limma$symbol), setdiff(res_limma$symbol, res_dodr$symbol)))/length(union(res_dodr$symbol, res_limma$symbol))) # due to higher power of RAIN
 
 ```
 
-```{r nut_challenge_1, fig.align="center"}
+```{r nut_challenge_2, fig.align="center"}
 se <- readRDS("data/PRJNA428303.RDS")
-exp_design <- colData(se)[, c("time", "group")]
-exp_design <- as.data.frame(exp_design)
-exp_design$time <- as.numeric(sub("ZT", "", exp_design$time))
-exp_design$group <- factor(exp_design$group)
+exp_des_nut_2 <- colData(se)[, c("time", "group")]
+exp_des_nut_2 <- as.data.frame(exp_des_nut_2)
+exp_des_nut_2$time <- as.numeric(sub("ZT", "", exp_des_nut_2$time))
+exp_des_nut_2$group <- factor(exp_des_nut_2$group)
 y_nut_2 <- assay(se, "countsFromAbundance")
 
-group_ids <- levels(exp_design$group)
-design <- model.matrix(~group + time, data=exp_design)
+group_ids <- levels(exp_des_nut_2$group)
+design <- model.matrix(~group + time, data=exp_des_nut_2)
 keep <- edgeR::filterByExpr(y_nut_2, design = design, min.total.count = 25)
 
 y_nut_2 <- y_nut_2[keep, ]
 
-res_voom <- compareRhythms(y_nut_2, exp_design, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
+res_voom <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
+
+table(res_voom$category == "ABR")
+
+common_genes <- intersect(rownames(y_nut_1), rownames(y_nut_2))
+
+y_nut_1 <- y_nut_1[common_genes,]
+y_nut_2 <- y_nut_2[common_genes,]
+
+res_voom_comm <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
+res_limma_comm <- compareRhythms(y_nut_1, exp_des_nut_1, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
 
 test <- merge(res_voom, res_limma, by="symbol")
 test$category.x <- test$category.x %in% c("DR", "AR", "BR")
 test$category.y <- test$category.y %in% c("DR", "AR", "BR")
 df2 <- table(test$category.x, test$category.y)
-
 
 ```
 
