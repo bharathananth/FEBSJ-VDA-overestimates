@@ -546,11 +546,7 @@ y_nut_1 <- y_nut_1[keep, ]
 res_dodr <- compareRhythms(y_nut_1, exp_des_nut_1, method = "dodr", just_classify = FALSE, compare_fdr = 0.05)
 res_limma <- compareRhythms(y_nut_1, exp_des_nut_1, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
 compare_res <- merge(res_dodr, res_limma, by="symbol")
-compare_res$category.x <- compare_res$category.x %in% c("DR", "AR", "BR")
-compare_res$category.y <- compare_res$category.y %in% c("DR", "AR", "BR")
-df1 <- table(compare_res$category.x, compare_res$category.y)
-rownames(df1) <- NULL
-colnames(df1) <- NULL
+df1 <- table(compare_res$diff_rhythmic.x, compare_res$diff_rhythmic.y)
 tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
   rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
 grid.table(df1, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
@@ -568,27 +564,16 @@ exp_des_nut_2$group <- factor(exp_des_nut_2$group)
 y_nut_2 <- assay(se, "countsFromAbundance")
 
 group_ids <- levels(exp_des_nut_2$group)
-design <- model.matrix(~group + time, data=exp_des_nut_2)
-keep <- edgeR::filterByExpr(y_nut_2, design = design, min.total.count = 25)
+keep <- rownames(y_nut_2) %in% rownames(y_nut_1)
 
 y_nut_2 <- y_nut_2[keep, ]
 
-res_voom <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
+res_voom <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = FALSE, compare_fdr = 0.05, outliers = TRUE)
 
 table(res_voom$category == "ABR")
 
-common_genes <- intersect(rownames(y_nut_1), rownames(y_nut_2))
-
-y_nut_1 <- y_nut_1[common_genes,]
-y_nut_2 <- y_nut_2[common_genes,]
-
-res_voom_comm <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = TRUE, compare_fdr = 0.05, outliers = TRUE, amp_cutoff = 0.01)
-res_limma_comm <- compareRhythms(y_nut_1, exp_des_nut_1, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
-
 test <- merge(res_voom, res_limma, by="symbol")
-test$category.x <- test$category.x %in% c("DR", "AR", "BR")
-test$category.y <- test$category.y %in% c("DR", "AR", "BR")
-df2 <- table(test$category.x, test$category.y)
+df2 <- table(test$diff_rhythmic.x, test$diff_rhythmic.y)
 
 ```
 

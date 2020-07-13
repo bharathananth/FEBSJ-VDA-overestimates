@@ -31,7 +31,24 @@ experiment_2 <- colData(se)[, c("time", "group")]
 experiment_2 <- as.data.frame(experiment_2)
 experiment_2$time <- as.numeric(sub("ZT", "", experiment_2$time))
 experiment_2$group <- factor(experiment_2$group)
-y_2 <- assay(se, "countsFromAbundance")
+counts <- assay(se, "countsFromAbundance")
+
+experiment_2 <- experiment_2[colSums(counts) > 5e6, ]
+counts <- counts[, colSums(counts) > 5e6]
+
+exp_design_aug <- base::cbind(experiment_2,
+                              inphase = cos(2 * pi * experiment_2$time / 24),
+                              outphase = sin(2 * pi * experiment_2$time / 24))
+
+design <- stats::model.matrix(~0 + group + group:inphase + group:outphase,
+                              data = exp_design_aug)
+
+y_2 <- edgeR::DGEList(counts)
+
+y_2 <- edgeR::calcNormFactors(y_2)
+
+v <- limma::voomWithQualityWeights(y_2, design)
+
 
 
 # Define UI for application that draws a histogram
@@ -48,7 +65,7 @@ ui <- fluidPage(
       
       # Show a plot of the generated distribution
       mainPanel(
-        plotOutput("timecourse")
+         plotOutput("timecourse")
       )
    )
 )
@@ -57,29 +74,38 @@ ui <- fluidPage(
 server <- function(input, output) {
    
    output$timecourse <- renderPlot({
-     # chose transcript base input$transcript from ui.R
-     data <- data.frame(value = y_1[input$gene,],
-                        time = experiment_1$time,
-                        condition = experiment_1$group)
-     
-     mean_data <- data %>% group_by(condition, time) %>% summarize(value=mean(value))
-     
-     f1 <- ggplot(data, aes(x=time, y = value, color=condition)) + geom_point() + 
-       geom_line(data=mean_data) + 
-       theme_bw() + theme(aspect.ratio = 1)
-     
-     data <- data.frame(value = y_2[input$gene,],
-                        time = experiment_2$time,
-                        condition = experiment_2$group)
-     
-     mean_data <- data %>% group_by(condition, time) %>% summarize(value=mean(value))
-     
-     f2 <- ggplot(data, aes(x=time, y = value, color=condition)) + geom_point() + 
-        geom_line(data=mean_data) + 
-        theme_bw() + theme(aspect.ratio = 1)
-     
-     grid.arrange(f1, f2, ncol=1)
-     
+      # chose transcript base input$transcript from ui.R
+      if (input$gene %in% rownames(y_1)) {
+      data <- data.frame(value = y_1[input$gene,],
+                         time = experiment_1$time,
+                         condition = experiment_1$group)
+      
+      mean_data <- data %>% group_by(condition, time) %>% summarize(value=mean(value))
+      
+      f1 <- ggplot(data, aes(x=time, y = value, color=condition)) + geom_point() + 
+         geom_line(data=mean_data) + 
+         theme_bw() + theme(aspect.ratio = 1)
+      } else {
+         f1 <- ggplot()
+      }
+      
+      if (input$gene %in% rownames(v$E)) {
+         data <- data.frame(value = v$E[input$gene,],
+                            time = experiment_2$time,
+                            condition = experiment_2$group)
+         
+         mean_data <- data %>% group_by(condition, time) %>% summarize(value=mean(value))
+         
+         f2 <- ggplot(data, aes(x=time, y = value, color=condition)) + geom_point() + 
+            geom_line(data=mean_data) + 
+            theme_bw() + theme(aspect.ratio = 1)
+         
+      } else {
+         f2 <- ggplot()
+      }
+      
+      grid.arrange(f1, f2, ncol=1)
+      
    })
 }
 
