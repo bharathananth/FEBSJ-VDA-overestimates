@@ -18,12 +18,22 @@ library(ggthemes)
 suppressPackageStartupMessages(library(gridExtra))
 suppressPackageStartupMessages(library(clusterProfiler))
 library(msigdbr)
-library(tidyverse)
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(org.Mm.eg.db))
 ```
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning = FALSE, fig.height = 3)
 amp_choices <- c(0, 0.5)
+
+m_df <- msigdbr(species = "Mus musculus", category = "H")
+m_t2g_hallmark <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+m_df <- msigdbr(species = "Mus musculus", category = "C3", subcategory = "TFT:GTRD")
+m_t2g_tft <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
+
+m_df <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME")
+m_t2g_reactome <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
 ```
 
 ```{r custom_theme}
@@ -532,53 +542,62 @@ wrap_elements(full = f2_1) + f2_2 + f2_3 + f2_4 + plot_annotation(tag_levels = '
 ### High-fat diet
 
 - Very few number of diff-rhythmic genes ~ 100
-```{r nut_challenge_1, fig.align="center"}
+```{r nutr_challenge_1, fig.align="center"}
 se <- readRDS("data/GSE52333.RDS")
 
-exp_des_nut_1 <- colData(se) %>% as.data.frame %>% tibble() %>%
-                 select(!!c("harvest.timepoint.ch1", "diet.ch1")) %>%
+exp_des_nutr_1 <- colData(se) %>% as.data.frame %>% tibble() %>%
+                 dplyr::select(!!c("harvest.timepoint.ch1", "diet.ch1")) %>%
                  mutate(time = as.numeric(sub("ZT", "", harvest.timepoint.ch1)),
                         group = fct_recode(diet.ch1, HFD="high fat diet", control="normal chow"))
 
-y_nut_1 <- assay(se, "expr")
+y_nutr_1 <- assay(se, "expr")
 
-group_ids <- levels(exp_des_nut_1$group)
-keep <- apply(y_nut_1, 1, function(x) median(x[exp_des_nut_1$group == group_ids[1]])>5 | 
-                                median(x[exp_des_nut_1$group == group_ids[2]])>5 )
+group_ids <- levels(exp_des_nutr_1$group)
+keep <- apply(y_nutr_1, 1, function(x) median(x[exp_des_nutr_1$group == group_ids[1]])>5 | 
+                                median(x[exp_des_nutr_1$group == group_ids[2]])>5 )
 
-y_nut_1 <- y_nut_1[keep, ]
+y_nutr_1 <- y_nutr_1[keep, ]
 
-res_dodr <- compareRhythms(y_nut_1, exp_des_nut_1, method = "dodr", just_classify = FALSE, compare_fdr = 0.05)
-res_limma <- compareRhythms(y_nut_1, exp_des_nut_1, method = "limma", just_classify = FALSE, compare_fdr = 0.05)
-compare_res <- join(res_dodr, res_limma, by="symbol")
+results_dodr <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "dodr", just_classify = FALSE, 
+                           compare_fdr = 0.05)
+results_emahan <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "limma", 
+                            just_classify = FALSE, compare_fdr = 0.05) %>% 
+             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+
+compare_res <- inner_join(results_dodr, results_emahan, by="symbol")
 df1 <- with(compare_res, table(diff_rhythmic.x, diff_rhythmic.y))
 tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
   rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
 grid.table(df1, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
 
-print(length(union(setdiff(res_dodr$symbol, res_limma$symbol), setdiff(res_limma$symbol, res_dodr$symbol)))/length(union(res_dodr$symbol, res_limma$symbol))) # due to higher power of RAIN
+print(length(union(setdiff(results_dodr$symbol, results_emahan$symbol), setdiff(results_emahan$symbol, results_dodr$symbol)))/length(union(results_dodr$symbol, results_emahan$symbol))) # due to higher power of RAIN
 
 ```
 
-```{r nut_challenge_2, fig.align="center"}
-se <- readRDS("data/PRJNA428303.RDS")
-exp_des_nut_2 <- colData(se) %>% as.data.frame %>% tibble %>%
-                 select(!!c("time", "group")) %>%
+```{r nutr_challenge_2, fig.align="center"}
+se <- readRDS("data/PRJNA428303.RDS") %>%
+      subset(select = colnames(.) != "SRR6436173")
+
+exp_des_nutr_2 <- colData(se) %>% as.data.frame %>% tibble %>%
+                 dplyr::select(!!c("time", "group")) %>%
                  mutate(time = as.numeric(sub("ZT", "", time)),
                         group = as_factor(group))
                  
-y_nut_2 <- assay(se, "countsFromAbundance")
+y_nutr_2 <- assay(se, "countsFromAbundance")
 
-group_ids <- levels(exp_des_nut_2$group)
-keep <- rownames(y_nut_2) %in% rownames(y_nut_1)
+group_ids <- levels(exp_des_nutr_2$group)
+keep <- edgeR::filterByExpr(y_nutr_2, group=exp_des_nutr_2$group)  #rownames(y_nutr_2) %in% rownames(y_nutr_1)
 
-y_nut_2 <- y_nut_2[keep, ]
+y_nutr_2 <- y_nutr_2[keep, ]
 
-res_voom <- compareRhythms(y_nut_2, exp_des_nut_2, method = "voom", just_classify = FALSE, compare_fdr = 0.05, outliers = TRUE)
+results_quag <- compareRhythms(y_nutr_2, exp_des_nutr_2, method = "voom", 
+                           just_classify = FALSE, compare_fdr = 0.05, outliers = TRUE) %>%
+            inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+
 
 df <- data.frame(source = rep(c("Eckel-Mahan et al.", "Quagliarini et al."), each=2),
                  category = rep(c("DR", "ABR"), 2),
-                 counts = c(table(res_limma$category == "ABR"), table(res_voom$category == "ABR"))) %>%
+                 counts = c(table(results_emahan$category == "ABR"), table(results_quag$category == "ABR"))) %>%
       group_by(source) %>%
       mutate(fraction = counts/sum(counts)) %>%
       mutate(ymax = cumsum(fraction), ymin = c(0, head(ymax, n=-1)),
@@ -591,20 +610,20 @@ ggplot(df, aes(ymin=ymin, ymax=ymax, xmin=3, xmax=4, fill=category)) +
   scale_fill_brewer(palette="Accent")
 ```
 
-```{r nut_phase_shift}
-nut_compare <- inner_join(res_limma, res_voom, by="symbol") %>%
+```{r nutr_phase_shift}
+nutr_compare <- inner_join(results_emahan, results_quag, by=c("symbol", "entrezgene_id", "mgi_symbol")) %>%
                mutate(DR = diff_rhythmic.x | diff_rhythmic.y,
                       amp_change_1 = (HFD_amp.x - control_amp.x),
                       phase_change_1 = exp(1i*HFD_phase.x - 1i*control_phase.x),
                       amp_change_2 = (HFD_amp.y - control_amp.y),
                       phase_change_2 = exp(1i*HFD_phase.y - 1i*control_phase.y))
 
-with(nut_compare, table(diff_rhythmic.x, diff_rhythmic.y))
+with(nutr_compare, table(diff_rhythmic.x, diff_rhythmic.y))
 
-df <- filter(nut_compare, DR) %>%
-      select(amp_change_1, phase_change_1, amp_change_2, phase_change_2, symbol) %>%
+df <- filter(nutr_compare, DR) %>%
+      dplyr::select(amp_change_1, phase_change_1, amp_change_2, phase_change_2, symbol) %>%
       gather(var, value, -symbol) %>%
-      separate(var, c("var", "junk", "source")) %>% select(-junk) %>%
+      separate(var, c("var", "junk", "source")) %>% dplyr::select(-junk) %>%
       group_by(symbol, source) %>%
       spread(var, value)
 
@@ -617,7 +636,7 @@ ggplot(data=df) +
   geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2) + 
   scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
   scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
-                     labels = (12/pi*seq(-2*pi/3, pi, pi/3)) %% 24) +
+                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12) +
   theme(aspect.ratio = 1, legend.position = "none", axis.line = element_blank(), 
         axis.ticks = element_blank(), 
         axis.text.x = element_text(),
@@ -627,37 +646,111 @@ ggplot(data=df) +
 
 ```
 
-```{r go_and_kegg}
-go <- enrichGO(nut_compare$symbol[nut_compare$DR], universe = nut_compare$symbol, OrgDb = org.Mm.eg.db, keyType = "ENSEMBL", minGSSize = 1, pvalueCutoff = 0.2, pAdjustMethod = "none", ont = "BP", qvalueCutoff = 1.0)
+```{r kegg}
+kegg_1 <- enrichKEGG(results_emahan$entrezgene_id[results_emahan$diff_rhythmic], universe = as.character(results_emahan$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
 
-dr_entrez <- subset(rowData(se), ensembl_gene_id %in% nut_compare$symbol)
-kegg <- enrichKEGG(dr_entrez$entrezgene_id[nut_compare$DR], universe = as.character(dr_entrez$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+kegg_2 <- enrichKEGG(results_quag$entrezgene_id[results_quag$diff_rhythmic], universe = as.character(results_quag$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+```
 
-go_1 <- enrichGO(res_limma$symbol[res_limma$diff_rhythmic], universe = res_limma$symbol, OrgDb = org.Mm.eg.db, keyType = "ENSEMBL", minGSSize = 1, pvalueCutoff = 0.05, pAdjustMethod = "none", ont = "BP", qvalueCutoff = 1.0)
+```{r reactome, eval=FALSE}
+reactome_1 <- enricher(results$mgi_symbol[results_emahan$diff_rhythmic], universe = as.character(results_emahan$mgi_symbol), TERM2GENE = m_t2g_reactome, qvalueCutoff = 1.0, pAdjustMethod = "none", pvalueCutoff = 0.05)
 
-go_2 <- enrichGO(res_voom$symbol[res_voom$diff_rhythmic], universe = res_voom$symbol, OrgDb = org.Mm.eg.db, keyType = "ENSEMBL", minGSSize = 1, pvalueCutoff = 0.05, pAdjustMethod = "none", ont = "BP", qvalueCutoff = 1.0)
-
-dr_entrez <- subset(rowData(se), ensembl_gene_id %in% nut_compare$symbol)
-kegg_1 <- enrichKEGG(dr_entrez$entrezgene_id[nut_compare$DR], universe = as.character(dr_entrez$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
-
+reactome_2 <- enricher(results_quag$mgi_symbol[results_quag$diff_rhythmic], universe = as.character(results_quag$mgi_symbol), TERM2GENE = m_t2g, qvalueCutoff = 1.0, pAdjustMethod = "none", pvalueCutoff = 0.05)
 
 ```
 
-```{r transfac_msigdb}
-m_df <- msigdbr(species = "Mus musculus", category = "C3", subcategory = "TFT:GTRD")
-m_t2g <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
-tft <- enricher(dr_entrez$mgi_symbol[nut_compare$DR], universe = dr_entrez$mgi_symbol, TERM2GENE = m_t2g, qvalueCutoff = 0.25, pAdjustMethod = "none", pvalueCutoff = 0.05)
+
+```{r keto}
+se <- readRDS("data/GSE87425.RDS") %>%
+      subset(select = colnames(.) != "GSM2331169") %>%
+      magrittr::extract(, .$tissue.ch1 == "LIVER") 
+
+exp_des_keto <- colData(se) %>% as.data.frame %>% tibble %>%
+                 dplyr::select(!!c("zt.ch1", "diet.ch1")) %>%
+                 mutate(time = as.numeric(zt.ch1),
+                        group = fct_recode(diet.ch1, keto="ketogenic", control="Norma Chow"))
+
+y_keto <- assay(se)
+
+group_ids <- levels(exp_des_keto$group)
+keep <- apply(y_keto, 1, function(x) median(x[exp_des_keto$group == group_ids[1]])>5 | 
+                                median(x[exp_des_keto$group == group_ids[2]])>5 )
+
+y_keto <- y_keto[keep, ]
+
+results_keto <- compareRhythms(y_keto, exp_des_keto, method = "limma", 
+                            just_classify = FALSE, compare_fdr = 0.05) %>% 
+             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
 ```
 
-```{r reactome}
-m_df <- msigdbr(species = "Mus musculus", category = "C2", subcategory = "CP:REACTOME")
+```{r enrichment}
+kegg <- enrichKEGG(results_keto$entrezgene_id[results_keto$diff_rhythmic], universe = as.character(results_keto$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+
+m_df <- msigdbr(species = "Mus musculus", category = "H")
 m_t2g <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
-reactome <- enricher(dr_entrez$mgi_symbol[nut_compare$DR], universe = dr_entrez$mgi_symbol, TERM2GENE = m_t2g, qvalueCutoff = 1.0, pAdjustMethod = "none", pvalueCutoff = 0.05)
+hallmark <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g)
+
+
+tft <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g_tft, qvalueCutoff = 1.0, pAdjustMethod = "none")
+```
+
+```{r intestine}
+se <- readRDS("data/GSE87425.RDS") %>%
+      magrittr::extract(, .$tissue.ch1 == "INTESTINE (IEC)") 
+
+exp_des_keto_iec <- colData(se) %>% as.data.frame %>% tibble %>%
+                 dplyr::select(!!c("zt.ch1", "diet.ch1")) %>%
+                 mutate(time = as.numeric(zt.ch1),
+                        group = fct_recode(diet.ch1, keto="ketogenic", control="Norma Chow"))
+
+y_keto_iec <- assay(se)
+
+group_ids <- levels(exp_des_keto_iec$group)
+keep <- apply(y_keto_iec, 1, function(x) median(x[exp_des_keto_iec$group == group_ids[1]])>5 | 
+                                median(x[exp_des_keto_iec$group == group_ids[2]])>5 )
+
+y_keto_iec <- y_keto_iec[keep, ]
+
+results_keto_iec <- compareRhythms(y_keto_iec, exp_des_keto_iec, method = "limma", 
+                            just_classify = FALSE, compare_fdr = 0.05) %>% 
+             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+```
+
+```{r enrichment_iec}
+kegg_iec <- enrichKEGG(results_keto_iec$entrezgene_id[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+
+hallmark_iec <- enricher(results_keto_iec$mgi_symbol[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$mgi_symbol), TERM2GENE = m_t2g_hallmark)
+```
+
+```{r pei}
+se <- readRDS("data/PRJNA449625.RDS")
+
+exp_des_pei <- colData(se) %>% as.data.frame %>% tibble %>%
+                 dplyr::select(!!c("treatment", "Genotype", "replicate")) %>%
+                 mutate(time = as.numeric(gsub("CT", "", treatment)),
+                        group = factor(Genotype),
+                        batch = factor(make.names(replicate)))
+
+y_pei <- assay(se, "countsFromAbundance")
+
+group_ids <- levels(exp_des_pei$group)
+keep <- edgeR::filterByExpr(y_pei, group=exp_des_pei$group)  #rownames(y_nutr_2) %in% rownames(y_nutr_1)
+
+y_pei <- y_pei[keep, ]
+
+results_pei <- compareRhythms(y_pei, exp_des_pei, method = "voom", 
+                           just_classify = FALSE, compare_fdr = 0.05, outliers = TRUE) %>%
+            inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+
+
 ```
 
 ```{r}
-m_list <- m_df %>% split(x = .$gene_symbol, f=.$gs_name)
-nut_compare %<>% mutate(pv = pmin(adj_p_val_DR.x, adj_p_val_DR.y)) %>% dplyr::arrange(pv)
-test <- fgsea(pathways=m_list, stats = )
+go_pei <- enrichGO(results_pei$entrezgene_id[results_pei$diff_rhythmic], org.Mm.eg.db, ont = "BP", universe = as.character(results_pei$entrezgene_id))
+
+kegg_pei <- enrichKEGG(results_pei$entrezgene_id[results_pei$diff_rhythmic], universe = as.character(results_pei$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+
+hallmark_pei <- enricher(results_pei$mgi_symbol[results_pei$diff_rhythmic], universe = as.character(results_pei$mgi_symbol), TERM2GENE = m_t2g_hallmark)
+
 ```
 
