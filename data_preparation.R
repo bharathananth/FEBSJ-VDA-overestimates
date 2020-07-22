@@ -128,14 +128,21 @@ txi_quag <- tximport(files, type = "salmon", tx2gene = tx2gene,
                      countsFromAbundance = "no", ignoreAfterBar = TRUE)
 
 counts <- txi_quag$counts
+lengths <- txi_quag$length
+abundance <- txi_quag$abundance
 
 countsFromAbundance <- countsFromAbundance[rowSums(counts)>0, ]
+lengths <- lengths[rowSums(counts)>0, ]
+abundance <- abundance[rowSums(counts)>0, ]
 counts <- counts[rowSums(counts)>0, ]
 
 rownames(counts) <- str_match(rownames(counts), "^ENSMUSG\\d+")[,1]
 rownames(countsFromAbundance) <- str_match(rownames(countsFromAbundance), "^ENSMUSG\\d+")[,1]
+rownames(lengths) <- str_match(rownames(lengths), "^ENSMUSG\\d+")[,1]
+rownames(abundance) <- str_match(rownames(abundance), "^ENSMUSG\\d+")[,1]
 
-data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance),
+data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance, 
+                                           lengths = lengths, abundance = abundance),
                              colData = metadata,
                              rowData = row_data[rownames(counts), ])
 
@@ -159,14 +166,21 @@ txi_koron <- tximport(files, type = "salmon", tx2gene = tx2gene,
                       countsFromAbundance = "no", ignoreAfterBar = TRUE)
 
 counts <- txi_koron$counts
+lengths <- txi_koron$length
+abundance <- txi_koron$abundance
 
 countsFromAbundance <- countsFromAbundance[rowSums(counts)>0, ]
+lengths <- lengths[rowSums(counts)>0, ]
+abundance <- abundance[rowSums(counts)>0, ]
 counts <- counts[rowSums(counts)>0, ]
 
 rownames(counts) <- str_match(rownames(counts), "^ENSMUSG\\d+")[,1]
 rownames(countsFromAbundance) <- str_match(rownames(countsFromAbundance), "^ENSMUSG\\d+")[,1]
+rownames(lengths) <- str_match(rownames(lengths), "^ENSMUSG\\d+")[,1]
+rownames(abundance) <- str_match(rownames(abundance), "^ENSMUSG\\d+")[,1]
 
-data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance),
+data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance,
+                                           abundance = abundance, lengths = lengths),
                              colData = metadata,
                              rowData = row_data[rownames(counts), ])
 
@@ -190,14 +204,20 @@ txi_pei <- tximport(files, type = "salmon", tx2gene = tx2gene,
                     countsFromAbundance = "no", ignoreAfterBar = TRUE)
 
 counts <- txi_pei$counts
+abundance <- txi_pei$abundance
+lengths <- txi_pei$length
 
 countsFromAbundance <- countsFromAbundance[rowSums(counts)>0, ]
+lengths <- lengths[rowSums(counts)>0, ]
+abundance <- abundance[rowSums(counts)>0, ]
 counts <- counts[rowSums(counts)>0, ]
 
 rownames(counts) <- str_match(rownames(counts), "^ENSMUSG\\d+")[,1]
 rownames(countsFromAbundance) <- str_match(rownames(countsFromAbundance), "^ENSMUSG\\d+")[,1]
+rownames(lengths) <- str_match(rownames(lengths), "^ENSMUSG\\d+")[,1]
+rownames(abundance) <- str_match(rownames(abundance), "^ENSMUSG\\d+")[,1]
 
-data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance),
+data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance = countsFromAbundance, lengths = lengths, abundance = abundance),
                              colData = metadata,
                              rowData = row_data[rownames(counts), ])
 
