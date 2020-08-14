@@ -588,7 +588,7 @@ tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
   rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
 grid.table(df1, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
 
-print(length(union(setdiff(results_dodr$symbol, results_emahan$symbol), setdiff(results_emahan$symbol, results_dodr$symbol)))/length(union(results_dodr$symbol, results_emahan$symbol))) # due to higher power of RAIN
+print(length(union(setdiff(results_emahan_dodr$symbol, results_emahan$symbol), setdiff(results_emahan$symbol, results_emahan_dodr$symbol)))/length(union(results_emahan_dodr$symbol, results_emahan$symbol))) # due to higher power of RAIN
 
 df3_1 <- bind_rows(data.frame(method="DODR", fdr=results_emahan_dodr$adj_p_val_dodr), 
           data.frame(method="limma", fdr=results_emahan$adj_p_val_DR)) %>%
@@ -597,11 +597,11 @@ df3_1 <- bind_rows(data.frame(method="DODR", fdr=results_emahan_dodr$adj_p_val_d
 
 f3_1 <- ggplot(data = df3_1) + stat_ecdf(aes(x=fdr, len=len, y=..y..*len, 
                                         color=factor(method)), geom = "step", size=0.75, pad=FALSE) +
-     geom_point(aes(x=0.18, 
+     geom_linerange(aes(xmin=0.12, xmax=0.25, 
                     y=sum(results_emahan_modsel$category %in% c("AR","BR","DR"))), 
-                color=colorblind_pal()(3)[3], shape=3, size=2) +
+                color=colorblind_pal()(3)[3], size=0.3) +
      xlab("false discovery rate") + ylab("number of DR genes") + 
-     coord_cartesian(xlim = c(0,0.5), ylim = c(0, 1400)) + scale_color_colorblind() +
+     coord_cartesian(xlim = c(0,0.5), ylim = c(0, 1300)) + scale_color_colorblind() +
      theme(legend.position = "none")
 
 df3_1 %<>% filter(row_number() == 1) %>%
@@ -611,7 +611,7 @@ df3_1 %<>% filter(row_number() == 1) %>%
 
 f3_1 <- f3_1 + geom_linerange(aes(y=len, color=method), xmin=0, xmax=0.1, 
                    data = df3_1, size=0.5) +
-  geom_text(aes(y=len, label=method), x=0.06, data=df3_1, hjust=0, vjust=-0.3)
+  geom_text(aes(y=len, label=method), x=0.06, data=df3_1, hjust=0, vjust=-0.3, size=9*0.35)
 
 
 ```
@@ -673,20 +673,21 @@ df3_3 <- filter(nutr_compare, DR) %>%
       spread(var, value)
 
 f3_3 <- ggplot(data=df3_3) +
-  geom_vline(xintercept = c(-1,0,1), color="grey80") +
+  geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
+  geom_vline(xintercept = 0, color = "grey80") +
   geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
   geom_point(aes(x=Re(amp), y = Arg(phase), color=source), size=0.4) +
   facet_wrap(~source, nrow=1, labeller = as_labeller(c(`2` = "Quagliarini et al.", `1` = "Eckel-Mahan et al."))) + 
   theme(aspect.ratio = 1) + xlab("") + ylab("") + 
-  geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2) + 
+  geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
   scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
   scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
-                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12) +
+                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12, ) +
   theme(aspect.ratio = 1, legend.position = "none", axis.line = element_blank(), 
         axis.ticks = element_blank(), 
-        axis.text.x = element_text(),
+        axis.text.x = element_text(size = 9),
         axis.text.y=element_blank(), panel.grid.major = element_blank()) + 
-  coord_polar(theta="y", start=-pi)
+  coord_polar(theta="y", start=-pi) + scale_color_tableau()
 
 
 ```
@@ -750,16 +751,69 @@ results_keto_modsel <- compareRhythms(y_keto, exp_des_keto, method = "mod_sel",
              inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
 ```
 
-```{r enrichment}
-kegg <- enrichKEGG(results_keto$entrezgene_id[results_keto$diff_rhythmic], universe = as.character(results_keto$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
 
-m_df <- msigdbr(species = "Mus musculus", category = "H")
-m_t2g <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
-hallmark <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g)
+```{r keto_figs}
+df4_1 <- bind_rows(data.frame(category = table(results_keto$category), method = "limma"),
+                   data.frame(category = table(results_keto_dodr$category), method = "dodr"),
+                   data.frame(category = table(results_keto_modsel$category), method = "model sel.")) %>%
+         rename(category = category.Var1, freq = category.Freq) %>%
+         dplyr::filter(category != "noR")
+
+f4_1 <- ggplot(df4_1) +
+  geom_col(aes(x=category, y=freq, fill=method), position = "dodge") + scale_fill_colorblind() +
+  annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
+  theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
+        legend.justification = "left") + ylab("number of DR genes") + xlab("")
 
 
-tft <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g_tft, qvalueCutoff = 1.0, pAdjustMethod = "none")
+df4_2 <- results_keto %>%
+         filter(diff_rhythmic) %>%
+                 mutate(amp_change = (Ketogenic_amp - control_amp),
+                      phase_change = exp(1i*Ketogenic_phase - 1i*control_phase))
+
+f4_2 <- ggplot(data=df4_2) +
+  geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
+  geom_vline(xintercept = 0, color = "grey80") +
+  geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
+  geom_point(aes(x=amp_change, y = Arg(phase_change), color=category), size=0.4) +
+  theme(aspect.ratio = 1) + xlab("") + ylab("") + scale_color_tableau("Classic 10") +
+  geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
+  scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
+  scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
+                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12, ) +
+  theme(aspect.ratio = 1, legend.position = "top", axis.line = element_blank(), 
+        axis.ticks = element_blank(), legend.title = element_blank(),
+        axis.text.x = element_text(size = 9), legend.key.size = unit(1, "line"),
+        axis.text.y=element_blank(), panel.grid.major = element_blank()) + 
+  coord_polar(theta="y", start=-pi)
+
 ```
+
+
+```{r enrichment, fig.height=3, fig.width=8}
+kegg_keto <- enrichKEGG(results_keto$entrezgene_id[results_keto$diff_rhythmic], universe = as.character(results_keto$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
+
+hallmark_keto <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g_hallmark, qvalueCutoff = 1.0, pAdjustMethod = "none")
+
+df4_3_1 <- head(kegg_keto, n=10) %>%
+           filter(qvalue<0.05) %>%
+           mutate(Description = str_wrap(Description, width=20),
+                  qvalue = scales::scientific(qvalue, digits = 3)) %>%
+           dplyr::select(Description, qvalue)
+df4_3_2 <- head(hallmark_keto, n=10) %>%
+           filter(qvalue<0.05) %>%
+           mutate(Description = gsub("_", " ", sub("HALLMARK","",Description)),
+                  Description = str_wrap(str_to_sentence(Description), width=20),
+                  qvalue = scales::scientific(qvalue, digits = 3)) %>%
+           dplyr::select(Description, qvalue)
+
+f4_3_1 <- tableGrob(df4_3_1, theme = ttheme_default(base_size = 8), cols = c("KEGG", "qvalue"), rows = NULL)
+f4_3_2 <- tableGrob(df4_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark (MSigDB)", "qvalue"), rows = NULL)
+
+f4_1 + f4_2 + gtable_rbind(f4_3_1, f4_3_2) + plot_layout(nrow = 1) + plot_annotation(tag_levels = "a")
+
+```
+
 
 ```{r intestine}
 se <- readRDS("data/GSE87425.RDS") %>%
@@ -783,10 +837,58 @@ results_keto_iec <- compareRhythms(y_keto_iec, exp_des_keto_iec, method = "limma
              inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
 ```
 
-```{r enrichment_iec}
+```{r enrichment_iec, fig.height=3, fig.width=7.5}
 kegg_iec <- enrichKEGG(results_keto_iec$entrezgene_id[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
 
 hallmark_iec <- enricher(results_keto_iec$mgi_symbol[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$mgi_symbol), TERM2GENE = m_t2g_hallmark)
+
+dfS4_1 <- data.frame(table(results_keto_iec$category)) %>%
+         rename(category = Var1, freq = Freq)
+
+fS4_1 <- ggplot(df4_1) +
+  geom_col(aes(x=category, y=freq), position = "dodge", width = 0.5) +
+  annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
+  ylab("number of DR genes") + xlab("")
+
+dfS4_2 <- results_keto_iec %>%
+         filter(diff_rhythmic) %>%
+                 mutate(amp_change = (Ketogenic_amp - control_amp),
+                      phase_change = exp(1i*Ketogenic_phase - 1i*control_phase))
+
+fS4_2 <- ggplot(data=dfS4_2) +
+  geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
+  geom_vline(xintercept = 0, color = "grey80") +
+  geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
+  geom_point(aes(x=amp_change, y = Arg(phase_change), color=category), size=0.4) +
+  theme(aspect.ratio = 1) + xlab("") + ylab("") + scale_color_tableau("Classic 10") +
+  geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
+  scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
+  scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
+                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12, ) +
+  theme(aspect.ratio = 1, legend.position = "top", axis.line = element_blank(), 
+        axis.ticks = element_blank(), legend.title = element_blank(),
+        axis.text.x = element_text(size = 9), legend.key.size = unit(1, "line"),
+        axis.text.y=element_blank(), panel.grid.major = element_blank()) + 
+  coord_polar(theta="y", start=-pi)
+
+dfS4_3_1 <- head(kegg_iec, n=3) %>%
+           mutate(Description = str_wrap(Description, width=20),
+                  qvalue = scales::scientific(qvalue, digits = 3)) %>%
+           dplyr::select(Description, qvalue)
+dfS4_3_2 <- head(hallmark_iec, n=10) %>%
+           filter(qvalue<0.05) %>%
+           mutate(Description = gsub("_", " ", sub("HALLMARK","",Description)),
+                  Description = str_wrap(str_to_sentence(Description), width=20),
+                  qvalue = scales::scientific(qvalue, digits = 3)) %>%
+           dplyr::select(Description, qvalue)
+
+fS4_3_1 <- tableGrob(dfS4_3_1, theme = ttheme_default(base_size = 8), cols = c("KEGG", "qvalue"), rows = NULL)
+fS4_3_2 <- tableGrob(dfS4_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark (MSigDB)", "qvalue"), rows = NULL)
+
+fS4_1 + fS4_2 + gtable_rbind(fS4_3_1, fS4_3_2) + plot_layout(nrow = 1, widths = c(0.8,1,1)) + plot_annotation(tag_levels = "a")
+
+
+
 ```
 
 ```{r pei}
