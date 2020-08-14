@@ -81,6 +81,26 @@ data <- update_se(geo, eset)
 
 saveRDS(data, file = paste0("data/", GEO, ".RDS"), compress = "gzip")
 
+####----------------------Lung inflammation data-------------------------####
+
+# No brainarray yet for this dataset
+
+# GEO <- "GSE59404"
+# geo <- get_geo(GEO)
+# raw_file_name <- get_raw_files(GEO)
+# pkg <- install_brainarray("mogene10st", annot = "ensg")
+# 
+# cel_files <- as.character(colData(geo)[["supplementary_file"]])
+# #--fix misreferenced file in supplementary table--#
+# err_file_name <- cel_files[grepl("GSM1263252", cel_files)]
+# cel_files[grepl("GSM1263252", cel_files)] <- sub("pli[\\w\\-\\.]+", "CEL.gz", sub("bA", "bB", err_file_name), perl=TRUE)
+# eset <- read_celfiles(raw_file_name, cel_files,platform_design = pkg)
+# data <- update_se(geo, eset)
+# 
+# saveRDS(data, file = paste0("data/", GEO, ".RDS"), compress = "gzip")
+
+
+
 ####------------------------Make tx2gene dataframe for tximport----------------------------####
 # txDb <- GenomicFeatures::makeTxDbFromGFF("~/Downloads/gencode.vM24.primary_assembly.annotation.gff3",
 #                                          organism = "Mus musculus")
