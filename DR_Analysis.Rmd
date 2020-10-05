@@ -2,7 +2,7 @@
 title: "Differential Rhythmicity Paper"
 author: "Bharath Ananthasubramaniam"
 date: "09/03/2020"
-output: pdf_document
+output: html_document
 ---
 
 ```{r packages, echo=FALSE}
@@ -20,11 +20,14 @@ suppressPackageStartupMessages(library(clusterProfiler))
 library(msigdbr)
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(org.Mm.eg.db))
+library(openxlsx)
 ```
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning = FALSE, fig.height = 3)
+knitr::opts_chunk$set(echo = FALSE, include = TRUE, warning = FALSE, fig.height = 3, fig.path='figures/',
+                      dev = c('pdf', 'svglite'))
 amp_choices <- c(0, 0.5)
+set.seed(1234)
 
 m_df <- msigdbr(species = "Mus musculus", category = "H")
 m_t2g_hallmark <- m_df %>% dplyr::select(gs_name, gene_symbol) %>% as.data.frame()
@@ -88,7 +91,7 @@ theme_custom <- function(base_size = 11, base_family = "Helvetica") {
       aspect.ratio = 0.75
     )
 }
-theme_set(theme_custom(base_size = 10))
+theme_set(theme_custom(base_size = 9))
 update_geom_defaults("line", list(size = 0.8))
 ```
 
@@ -215,6 +218,10 @@ filter_genes <- function(y, group, min.count=10, min.expr=4, type="ma", n.prop=0
   }
   return(keep)
 }
+
+shifter <- function(x, n = 1) {
+  if (n == 0) x else c(tail(x, -n), head(x, n))
+}
 ```
 
 ## Problem
@@ -239,34 +246,40 @@ liver_hughes <- liver_hughes[sel, ]
 ## ----------create artificial group of odd and even samples -------##
 exp_design <- as.data.frame(colData(liver_hughes))
 exp_design$time <- as.numeric(do.call(rbind, strsplit(as.character(liver_hughes$title), " ", fixed = TRUE))[,3])
-exp_design$group <- ifelse(exp_design$time %% 2, "O", "E")
+exp_design$group <- factor(ifelse(exp_design$time %% 2, "O", "E"))
 ```
 
-```{r analyze-odd-even, fig.width=4, eval=FALSE}
+```{r analyze-odd-even, fig.width=4, eval=TRUE}
 pvm_ex_1 <- rhythm_analysis(assay(liver_hughes), exp_design)
 
-df_1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
+df1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
                   amp_cutoff = amp_choices)
-df_1_1$no_of_DR <- vapply(seq(nrow(df_1_1)),
+df1_1$no_of_DR <- vapply(seq(nrow(df1_1)),
                    function(i) {
-                     return(sum(xor(pvm_ex_1$adj_p_val_A < df_1_1[i, "fdr_cutoff"] &
-                                    pvm_ex_1$A_amp > df_1_1[i, "amp_cutoff"],
-                                    pvm_ex_1$adj_p_val_B < df_1_2[i, "fdr_cutoff"] &
-                                    pvm_ex_1$B_amp > df_1_1[i, "amp_cutoff"])))
+                     return(sum(xor(pvm_ex_1$adj_p_val_A < df1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_1$A_amp > df1_1[i, "amp_cutoff"],
+                                    pvm_ex_1$adj_p_val_B < df1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_1$B_amp > df1_1[i, "amp_cutoff"])))
                    }, FUN.VALUE = numeric(1))
-df_1_1$percent <- df_1_1$no_of_DR/nrow(liver_hughes)
+df1_1$percent <- df1_1$no_of_DR/nrow(liver_hughes)
 
-f1_1 <- ggplot(df_1_1) + 
-  geom_line(aes_(x=~fdr_cutoff, y=~percent, linetype=~factor(amp_cutoff))) +
+f1_1 <- ggplot(df1_1) + 
+  geom_line(aes_(x=~fdr_cutoff, y=~no_of_DR, linetype=~factor(amp_cutoff))) +
   scale_linetype_manual(name = "", labels=parse(text = paste0('A > ', amp_choices)), 
                         values = c("solid", "dashed")) +
-  scale_y_continuous(labels = scales::percent) + xlab("false discovery cutoff") +
-  ylab("diff. rhythmic genes") + coord_cartesian(xlim = c(0.0005,0.2)) +
+  xlab("false discovery cutoff for rhythms") +
+  ylab("DiffR genes") + coord_cartesian(xlim = c(0.0005,0.2), ylim=c(0, 3000)) +
   scale_x_continuous(trans = "log10", breaks = c(0.001, 0.01, 0.05, 0.2)) +
-  annotate("line", x = c(10^-3.4, 10^-2.25), y = 0.32) +
-  annotate("point", x = 10^(seq(-3.25, -2.5, by = 0.25)), y = 0.32, size = 3.5, color="grey20") +
-  annotate("point", x = 10^(seq(-3, -2.5, by = 0.5)), y = 0.32, shape = "O", color = "white", size = 1.75) +
-  annotate("point", x = 10^(seq(-3.25, -2.25, by = 0.5)), y = 0.32, shape = "E", color = "white", size = 1.75)
+  annotate("line", x = c(10^-3.4, 10^-2.25), y = 2750) +
+  annotate("point", x = 10^(seq(-3.25, -2.5, by = 0.25)), y = 2750, size = 3.5, color="grey20") +
+  annotate("point", x = 10^(seq(-3, -2.5, by = 0.5)), y = 2750, shape = "O", color = "white", size = 1.75) +
+  annotate("point", x = 10^(seq(-3.25, -2.25, by = 0.5)), y = 2750, shape = "E", color = "white", size = 1.75) +
+  theme(legend.box.margin=margin(b=-20), legend.margin = margin())
+
+mod_sel_ex_1 <- compareRhythms(assay(liver_hughes), exp_design = exp_design, method = "mod_sel")
+dodr_ex_1 <- compareRhythms(assay(liver_hughes), exp_design = exp_design, method = "dodr")
+limma_ex_1 <- compareRhythms(assay(liver_hughes), exp_design = exp_design, method = "limma")
+
 ```
 
 * for a range of FDR cutoffs for the rhythmicity in each dataset, anywhere from 10-20% DR genes are found
@@ -277,56 +290,73 @@ f1_1 <- ggplot(df_1_1) +
 
 * Downsampled liver time series with a sample every 2h also shows large number of false positives
 * But the a certain level of false positives occurs at larger FDR cutoffs -- since p-values are larger in the lower resolution data.
-```{r artificial-DR-dataset, eval=FALSE}
+```{r artificial-DR-dataset, eval=TRUE}
 ##--------create artificial DR genes by exchanging labels of genes-------##
-N <- round(0.1*nrow(liver_hughes))
+N <- 500 #round(0.1*sum(pmin(pvm_ex_1$adj_p_val_A, pvm_ex_1$adj_p_val_B)<0.05))
 
-amp_cutoff <- 0.5
+amp_cutoff <- median(pvm_ex_1$A_amp[pvm_ex_1$adj_p_val_A<0.05])
 
-large_amp_genes <- pvm_ex_1[pvm_ex_1$A_amp > amp_cutoff, ]
+large_amp_genes <- pvm_ex_1[pvm_ex_1$A_amp > amp_cutoff & pvm_ex_1$adj_p_val_A<0.05, ]
 
-rhythmic_in_A <- rownames(large_amp_genes)[order(large_amp_genes$adj_p_val_A)[seq(min(N, nrow(large_amp_genes)))]]
+rhythmic_in_A <- rownames(large_amp_genes)[sample.int(nrow(large_amp_genes))][seq(min(N, nrow(large_amp_genes)))]
 
 new_expr <- assay(liver_hughes)
 
 for (gene in rhythmic_in_A) {
   temp <- new_expr[gene, ]
-  temp[exp_design$group == "O"] <- sample(temp[exp_design$group == "O"])
+  scale_shift = runif(1, 0.5, 1.5)*(temp[exp_design$group == "O"] - mean(temp[exp_design$group == "O"])) + mean(temp[exp_design$group == "O"])
+  temp[exp_design$group == "O"] <- shifter(scale_shift, sample(length(scale_shift), 1))
   new_expr[gene, ] <- temp
 }
 ```
 
-```{r artificial-DR-data-analysis, fig.width = 7, fig.height=2.5, eval=FALSE}
+```{r Figure1, fig.width = 7, fig.height=2.5, eval=TRUE}
 pvm_ex_2 <- rhythm_analysis(new_expr, exp_design)
 
-df_1_2 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
+df1_2 <- expand.grid(fdr_cutoff = 10^seq(-9, log10(0.999), by=0.1),
                   amp_cutoff = amp_choices)
 true_dr_genes <- rownames(pvm_ex_2) %in% rhythmic_in_A
 
-roc <- vapply(seq(nrow(df_1_2)),
+roc <- vapply(seq(nrow(df1_2)),
               function(i) {
-                est_dr_genes <- xor(pvm_ex_2$adj_p_val_A < df_1_2[i, "fdr_cutoff"] &
-                                      pvm_ex_2$A_amp > df_1_2[i, "amp_cutoff"],
-                                    pvm_ex_2$adj_p_val_B < df_1_2[i, "fdr_cutoff"] &
-                                      pvm_ex_2$B_amp > df_1_2[i, "amp_cutoff"])
+                est_dr_genes <- xor(pvm_ex_2$adj_p_val_A < df1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_2$A_amp > df1_2[i, "amp_cutoff"],
+                                    pvm_ex_2$adj_p_val_B < df1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_2$B_amp > df1_2[i, "amp_cutoff"])
                 tp <- sum(true_dr_genes & est_dr_genes)
+                fn <- sum(true_dr_genes & !est_dr_genes)
                 fp <- sum(!true_dr_genes & est_dr_genes)
-                return(c(TP = tp, FP = fp))
-              }, FUN.VALUE = numeric(2))
-df_1_2 <- cbind(df_1_2, t(roc))
+                tn <- sum(!true_dr_genes & !est_dr_genes)
+                return(c(TP = tp, FP = fp, FN = fn, TN=tn))
+              }, FUN.VALUE = numeric(4))
+df1_2 <- cbind(df1_2, t(roc))
 
-f1_2 <- ggplot(df_1_2) + 
-  geom_area(aes_(x=~fdr_cutoff, y=~FP+TP), color = "black", fill = "white") + 
+f1_2 <- ggplot(df1_2) +
+  geom_area(aes_(x=~fdr_cutoff, y=~FP+TP), color = "black", fill = "white") +
   geom_area(aes_(x=~fdr_cutoff, y=~TP), fill = "grey70", position="identity", alpha=0.75) +
-  facet_wrap(~factor(amp_cutoff), nrow = 1, 
+  facet_wrap(~factor(amp_cutoff), nrow = 1,
              labeller = as_labeller(setNames(paste0('~A>', amp_choices), amp_choices), label_parsed)) +
-  geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash", size = 0.6)  + 
-  xlab("false discovery cutoff for rhythms") + ylab("diff. rhythmic genes") + 
-  scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.001, 0.01, 0.05)) +
-  coord_cartesian(xlim = c(0.0005,0.2)) + scale_y_continuous(expand = c(0.01,0))
+  geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash", size = 0.6)  +
+  xlab("false discovery cutoff for rhythms") + ylab("DiffR genes") +
+  scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.0001, 0.001, 0.01, 0.1),
+                     labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  coord_cartesian(xlim = c(0.00001,0.5)) + scale_y_continuous(expand = c(0.01,0))
 
 
-f1_1 + f1_2 + plot_layout(nrow=1, widths = c(1,2)) + plot_annotation(tag_levels = 'a')
+f1_1 + f1_2 + plot_layout(nrow=1, widths = c(1,2)) + plot_annotation(tag_levels = 'A')
+
+```
+
+```{r artificial-DR-rocs}
+ggplot(df1_2, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(pvm_ex_2))), color="grey90") +
+  geom_path(color="black") +
+  xlab("Fraction of DiffR transcripts found (Recall)") + ylab("Fraction of true DiffR transcripts (Precision)") + coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+
+```
+
+```{r Figure1, fig.width = 7, fig.height=2.5, eval=TRUE}
+
 ```
 
 * for all typical choices of fdr cutoff, larger number of DR genes are predicted by PVM
@@ -335,45 +365,47 @@ f1_1 + f1_2 + plot_layout(nrow=1, widths = c(1,2)) + plot_annotation(tag_levels 
 * Notice the number of true DR genes in set varies non-monotonically.
 * Using an amplitude cutoff, controls the inflation in the number of DR genes, but at the cost of even fewer true hits (lower power)
 
-```{r hughes-data-supp, eval=FALSE}
+```{r hughes-data-supp, eval=TRUE}
 liver_hughes_sub <- liver_hughes[, exp_design$time %% 2 == 0]
 exp_design_sub <- exp_design[exp_design$time %% 2 == 0, ]
 exp_design_sub$group <- ifelse(exp_design_sub$time %% 4, "O", "E")
 ```
 
-```{r analyze-odd-even-supp, fig.width=4, eval=FALSE}
+```{r analyze-odd-even-supp, fig.width=4, eval=TRUE}
 pvm_ex_S1 <- rhythm_analysis(assay(liver_hughes_sub), exp_design_sub)
 
-df_S1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
+dfS1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
                   amp_cutoff = amp_choices)
-df_S1_1$no_of_DR <- vapply(seq(nrow(df_S1_1)),
+dfS1_1$no_of_DR <- vapply(seq(nrow(dfS1_1)),
                    function(i) {
-                     return(sum(xor(pvm_ex_S1$adj_p_val_A < df_S1_1[i, "fdr_cutoff"] &
-                                    pvm_ex_S1$A_amp > df_S1_1[i, "amp_cutoff"],
-                                    pvm_ex_S1$adj_p_val_B < df_S1_1[i, "fdr_cutoff"] &
-                                    pvm_ex_S1$B_amp > df_S1_1[i, "amp_cutoff"])))
+                     return(sum(xor(pvm_ex_S1$adj_p_val_A < dfS1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_S1$A_amp > dfS1_1[i, "amp_cutoff"],
+                                    pvm_ex_S1$adj_p_val_B < dfS1_1[i, "fdr_cutoff"] &
+                                    pvm_ex_S1$B_amp > dfS1_1[i, "amp_cutoff"])))
                    }, FUN.VALUE = numeric(1))
-df_S1_1$percent <- df_S1_1$no_of_DR/nrow(liver_hughes)
+dfS1_1$percent <- dfS1_1$no_of_DR/nrow(liver_hughes)
 
-fS1_1 <- ggplot(df_S1_1) + 
+fS1_1 <- ggplot(dfS1_1) + 
   geom_line(aes_(x=~fdr_cutoff, y=~percent, linetype=~factor(amp_cutoff))) +
   theme(legend.position = "top", legend.margin=margin(0,0,0,0)) + 
   scale_linetype_manual(name = "", labels=parse(text = paste0('A > ', amp_choices)), 
                         values = c("solid", "dashed")) +
   scale_y_continuous(labels = scales::percent) + xlab("false discovery cutoff for rhythms") +
-  ylab("diff. rhythmic genes") + coord_cartesian(xlim = c(0.005,0.25)) + 
+  ylab("DiffR genes") + coord_cartesian(xlim = c(0.005,0.25)) + 
   scale_x_continuous(trans = "log10", breaks = c(0.01, 0.05, 0.2)) +
     annotate("line", x = c(10^-2.3, 10^-1.35), y = 0.32) +
   annotate("point", x = 10^(seq(-2.2, -1.4, by = 0.15)), y = 0.32, size = 3.5, color = "grey20") +
     annotate("point", x = 10^(seq(-2.05, -1.4, by = 0.3)), y = 0.32, size = 3, color = "grey90") +
   annotate("point", x = 10^(seq(-2.2, -1.4, by = 0.6)), y = 0.32, shape = "E", color = "white", size = 1.75) +
-    annotate("point", x = 10^(seq(-1.9, -1.4, by = 0.6)), y = 0.32, shape = "O", color = "white", size = 1.75)
+    annotate("point", x = 10^(seq(-1.9, -1.4, by = 0.6)), y = 0.32, shape = "O", color = "white", size = 1.75) +
+      theme(legend.box.margin=margin(b=-20), legend.margin = margin())
+
 ```
 
-```{r artificial-DR-data-supp, eval=FALSE}
-N <- 1000
+```{r artificial-DR-data-supp, eval=TRUE}
+N <- 0.1*nrow(pvm_ex_S1)
 
-large_amp_genes <- pvm_ex_S1[pvm_ex_S1$A_amp > 0.5, ]
+large_amp_genes <- pvm_ex_S1[pvm_ex_S1$A_amp > amp_cutoff, ]
 
 rhythmic_in_A <- rownames(large_amp_genes)[order(large_amp_genes$adj_p_val_A)[seq(min(N, nrow(large_amp_genes)))]]
 
@@ -386,67 +418,47 @@ for (gene in rhythmic_in_A) {
 }
 ```
 
-```{r artificial-DR-data-analysis-supp, fig.width=5, fig.height=5, eval=FALSE}
+```{r FigureS1, fig.width=7, fig.height=2.5, eval=TRUE}
 pvm_ex_S2 <- rhythm_analysis(new_expr_sub, exp_design_sub)
 
-df_S1_2 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
+dfS1_2 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
                   amp_cutoff = amp_choices)
 true_dr_genes <- rownames(pvm_ex_S2) %in% rhythmic_in_A
 
-roc <- vapply(seq(nrow(df_S1_2)),
+roc <- vapply(seq(nrow(dfS1_2)),
               function(i) {
-                est_dr_genes <- xor(pvm_ex_S2$adj_p_val_A < df_S1_2[i, "fdr_cutoff"] &
-                                      pvm_ex_S2$A_amp > df_S1_2[i, "amp_cutoff"],
-                                    pvm_ex_S2$adj_p_val_B < df_S1_2[i, "fdr_cutoff"] &
-                                      pvm_ex_S2$B_amp > df_S1_2[i, "amp_cutoff"])
-                tp <- sum(true_dr_genes & est_dr_genes)
-                fp <- sum(!true_dr_genes & est_dr_genes)
+                est_dr_genes <- xor(pvm_ex_S2$adj_p_val_A < dfS1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_S2$A_amp > dfS1_2[i, "amp_cutoff"],
+                                    pvm_ex_S2$adj_p_val_B < dfS1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_S2$B_amp > dfS1_2[i, "amp_cutoff"])
+                tp <- sum(true_dr_genes & est_dr_genes)/nrow(pvm_ex_S2)
+                fp <- sum(!true_dr_genes & est_dr_genes)/nrow(pvm_ex_S2)
                 return(c(TP = tp, FP = fp))
               }, FUN.VALUE = numeric(2))
-df_S1_2 <- cbind(df_S1_2, t(roc))
+dfS1_2 <- cbind(dfS1_2, t(roc))
 
-fS1_2 <- ggplot(df_S1_2) + 
+fS1_2 <- ggplot(dfS1_2) + 
   geom_area(aes_(x=~fdr_cutoff, y=~TP+FP), color="black", fill = "white") +
   geom_area(aes_(x=~fdr_cutoff, y=~TP), fill = "grey70", alpha = 0.75, position ="identity") + 
   facet_wrap(~factor(amp_cutoff), nrow = 1,
              labeller = as_labeller(setNames(paste0('~A >', amp_choices), amp_choices), label_parsed)) +
-  geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash") +
-  xlab("false discovery cutoff for rhythms") + ylab("diff. rhythmic genes") + 
+  geom_hline(aes_(yintercept=~sum(true_dr_genes)/nrow(pvm_ex_S2)), linetype = "twodash") +
+  xlab("false discovery cutoff for rhythms") + ylab("DiffR genes") + 
   scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.01, 0.05, 0.2)) +
-  coord_cartesian(xlim = c(0.005,0.25))
+  coord_cartesian(xlim = c(0.005,0.25)) + scale_y_continuous(labels = scales::percent)
 
-fS1_1 / fS1_2 + plot_annotation(tag_levels = 'a') + plot_layout(heights = c(0.47, 0.53))
+fS1_1 + fS1_2 + plot_layout(nrow=1, widths = c(1, 2)) + plot_annotation(tag_levels = 'A')
 ```
 
 * on the subsampled data, the p-values are larger resulting is even over estimates for less conservative thresholds.
 * for strigent cutoffs, the number of DR genes is underestimated with only a small fraction of DR genes.
 
 ## Applying the appropriate methods
-```{r diff-rhy-scheme, eval=FALSE}
-pts <- seq(0, 2*pi, length.out = 100)
-f2_1 <- ggplot() +
-    annotate("rect", ymin = -1.2, ymax = 6.3, xmin = -0.5, xmax = 8.5 + 2*pi, color = "grey20", alpha = 0.25, fill = "grey80") + 
-  annotate("line", x = pts, y = sin(pts), color = "black", size = 1) +
-  annotate("line", x = 8 + pts, y = cos(pts), color = "red", size = 1) +
-  annotate("line", x = pts, y = 2.5 + sin(pts), color = "black", size = 1) +
-  annotate("line", x = 8 + pts, y = 2.5, color = "black", size = 1) +
-  annotate("line", x = pts, y = 5 , color = "black", size = 1) +
-  annotate("line", x = 8 + pts, y = 5 + sin(pts), color = "black", size = 1) +
-  annotate("line", x = pts, y = 7.5 + sin(pts) , color = "black", size = 1) +
-  annotate("line", x = 8 + pts, y = 7.5 + sin(pts), color = "black", size = 1) +
-  annotate("line", x = pts, y = 10 , color = "black", size = 1) +
-  annotate("line", x = 8 + pts, y = 10 , color = "black", size = 1) +
-  annotate("text", x =  mean(pts), y = 12, label = "A", family = "Courier", size = 4, margin=margin(b=5)) +
-  annotate("text", x =  8 + mean(pts), y = 12, label = "B", family = "Courier", size = 4, margin=margin(b=5)) +
-  annotate("text", x = -2, y = 2.5, label = "diff. rhythmic" , angle = 90, size = 3.5, margin=margin(b=5)) +
-  theme_void(base_family = "Helvetica", base_size = 11) + 
-  theme(plot.tag = element_text(face = "bold"), plot.margin = margin(l=10, r=10)) + coord_fixed(ratio = 1.5, expand = TRUE, clip = "off")
-```
 
 ```{r odd-even-correct, eval=FALSE}
 df_2_2 <- expand.grid(fdr_cutoff = 0.05,
                   amp_cutoff = amp_choices,
-                  method = c("dodr", "model"))
+                  method = c("DODR", "model"))
 
 df_2_2$no_of_DR <- vapply(seq(nrow(df_2_2)),
                    function(i) {
@@ -481,7 +493,7 @@ f2_2 <- ggplot(df_2_2) +
 
 ```
 
-```{r,  eval=FALSE}
+```{r odd-even-correct-plots,  eval=FALSE}
 df_2_3 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.33), by=0.5),
                   amp_cutoff = amp_choices)
 true_dr_genes <- rownames(pvm_ex_2) %in% rhythmic_in_A
@@ -508,7 +520,7 @@ f2_3 <- ggplot(df_2_3) +
 
 ```
 
-```{r , fig.height=4, fig.width=16/3, eval=FALSE}
+```{r FigureS2, fig.height=4, fig.width=16/3, eval=FALSE}
 df_2_4 <- data.frame(amp_cutoff = amp_choices)
 
 roc <- vapply(seq(nrow(df_2_4)),
@@ -566,7 +578,10 @@ results_emahan <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "limma",
              inner_join(as.data.frame(rowData(se))[c(1,2,3)], 
                         by=c("symbol"="ensembl_gene_id"))
 results_emahan_modsel <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "mod_sel", 
-                                      just_classify = FALSE)
+                                      just_classify = FALSE) %>%
+            inner_join(as.data.frame(rowData(se))[c(1,2,3)], 
+                        by=c("symbol"="ensembl_gene_id"))
+
 
 compare_res <- inner_join(results_emahan_dodr, results_emahan, by="symbol")
 df1 <- with(compare_res, table(diff_rhythmic.x, diff_rhythmic.y))
@@ -574,7 +589,7 @@ tt <- ttheme_default(colhead=list(fg_params=list(fontface="bold")),
   rowhead=list(fg_params=list(fontface="bold"), bg_params=list(fill="grey80")))
 grid.table(df1, rows=c("not DR", "DR"), cols=c("not DR", "DR"), theme=tt)
 
-print(length(union(setdiff(results_emahan_dodr$symbol, results_emahan$symbol), setdiff(results_emahan$symbol, results_emahan_dodr$symbol)))/length(union(results_emahan_dodr$symbol, results_emahan$symbol))) # due to higher power of RAIN
+# print(length(union(setdiff(results_emahan_dodr$symbol, results_emahan$symbol), setdiff(results_emahan$symbol, results_emahan_dodr$symbol)))/length(union(results_emahan_dodr$symbol, results_emahan$symbol))) # due to higher power of RAIN
 
 df3_1 <- bind_rows(data.frame(method="DODR", fdr=results_emahan_dodr$adj_p_val_dodr), 
           data.frame(method="limma", fdr=results_emahan$adj_p_val_DR)) %>%
@@ -584,16 +599,16 @@ df3_1 <- bind_rows(data.frame(method="DODR", fdr=results_emahan_dodr$adj_p_val_d
 f3_1 <- ggplot(data = df3_1) + stat_ecdf(aes(x=fdr, len=len, y=..y..*len, 
                                         color=factor(method)), geom = "step", size=0.75, pad=FALSE) +
      geom_linerange(aes(xmin=0.12, xmax=0.25, 
-                    y=sum(results_emahan_modsel$category %in% c("AR","BR","DR"))), 
+                    y=sum(results_emahan_modsel$category %in% c("gain", "loss", "change"))), 
                 color=colorblind_pal()(3)[3], size=0.3) +
-     xlab("false discovery rate") + ylab("number of DR genes") + 
+     xlab("false discovery rate") + ylab("number of DiffR transcripts") + 
      coord_cartesian(xlim = c(0,0.5), ylim = c(0, 1300)) + scale_color_colorblind() +
      theme(legend.position = "none")
 
 df3_1 %<>% filter(row_number() == 1) %>%
       dplyr::select(method, len) %>%
       bind_rows(data.frame(method = "model sel.", 
-                           len = sum(results_emahan_modsel$category!="noR"))) 
+                           len = sum(results_emahan_modsel$category!="arrhy"))) 
 
 f3_1 <- f3_1 + geom_linerange(aes(y=len, color=method), xmin=0, xmax=0.1, 
                    data = df3_1, size=0.5) +
@@ -625,7 +640,7 @@ results_quag <- compareRhythms(y_nutr_2, exp_des_nutr_2, method = "voom",
 
 df3_2 <- data.frame(source = rep(c("Eckel-Mahan et al.", "Quagliarini et al."), each=2),
                  category = rep(c("DR", "ABR"), 2),
-                 counts = c(table(results_emahan$category == "ABR"), table(results_quag$category == "ABR"))) %>%
+                 counts = c(table(results_emahan$category == "same"), table(results_quag$category == "same"))) %>%
       group_by(source) %>%
       mutate(fraction = counts/sum(counts)) %>%
       mutate(ymax = cumsum(fraction), ymin = c(0, head(ymax, n=-1)),
@@ -641,8 +656,48 @@ f3_2 <- ggplot(df3_2, aes(ymin=ymin, ymax=ymax, xmin=2, xmax=3, fill=category)) 
                        axis.line = element_blank(), axis.ticks = element_blank(),
                        aspect.ratio = 1, axis.text = element_blank(), panel.grid.major.x = element_blank(),
                        panel.grid.major.y = element_blank(), axis.title = element_blank(),
-                       title = element_blank()) + ylab("") + xlab("")
+                       title = element_blank(), panel.spacing.x = unit(0, "lines")) + ylab("") + xlab("")
 ```
+
+```{r hfd_timecourses, fig.width=6.5, fig.height=3.5}
+hfd_genes <- c("Nampt", "Nr1d1", "Per2", "Dbp", "Cry1", "Arntl", "Nr1d2", "Per1", "Rorc")
+hfd_genes_ensembl <- filter(results_emahan, mgi_symbol %in% hfd_genes)
+
+data_eckel <- y_nutr_1[hfd_genes_ensembl$symbol,] %>% 
+           magrittr::set_colnames(paste(exp_des_nutr_1$group, exp_des_nutr_1$time, sep="_")) %>%
+           magrittr::set_rownames(hfd_genes_ensembl$mgi_symbol) %>%
+           data.frame %>% 
+           rownames_to_column(var="symbol") %>% 
+           gather(sample, value, -symbol) %>% 
+           separate(sample, c("grp", "time"), "_", convert = TRUE) %>% 
+           mutate(type = "eckel-mahan")
+
+y_nutr_2_abund <- assay(se, "abundance") %>% {log2(. + 0.01)}
+
+data_quag <- y_nutr_2_abund[hfd_genes_ensembl$symbol,] %>% 
+           magrittr::set_colnames(paste(exp_des_nutr_2$group, exp_des_nutr_2$time, sep="_")) %>%
+           magrittr::set_rownames(hfd_genes_ensembl$mgi_symbol) %>%
+           data.frame %>% 
+           rownames_to_column(var="symbol") %>% 
+           gather(sample, value, -symbol) %>% 
+           separate(sample, c("grp", "time"), "_", convert = TRUE) %>% 
+           mutate(type = "quag")
+
+df3_5 <- bind_rows(data_eckel, data_quag)
+
+label_one <- function(labels) return(list(labels$symbol))
+          
+f3_5 <- ggplot(df3_5, aes(time, value, linetype=grp, color=type)) + 
+  geom_point(size = 0.3) +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75) +
+  facet_wrap(~ symbol + type, scales = "free_y", ncol = 6, labeller = label_one) + 
+  theme_custom(base_size = 9) + scale_color_tableau(name=NULL, labels = c("Eckel-Mahan et al.", "Quagliarini et al.")) + scale_linetype_manual(values = c("dashed","solid"), name=NULL) + scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
+  theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), panel.spacing = unit(8, "pt")) +
+  xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
+
+```
+
+
 
 ```{r nutr_phase_shift}
 nutr_compare <- inner_join(results_emahan, results_quag, by=c("symbol", "entrezgene_id", "mgi_symbol")) %>%
@@ -700,10 +755,18 @@ reactome_2 <- enricher(results_quag$mgi_symbol[results_quag$diff_rhythmic], univ
 
 ```
 
-```{r fig3, fig.height=5, fig.width=6.5}
+```{r Figure3, fig.height=8, fig.width=6.5}
 #grid.arrange(f3_1, f3_2, f3_3, layout_matrix=matrix(1:4, ncol=2, byrow=TRUE))
 
-f3_1 + f3_2 + gtable_cbind(f3_4_1, f3_4_2) + f3_3 + plot_layout(ncol = 2, nrow = 2, widths = c(0.8,1)) + plot_annotation(tag_levels = "a")
+layout <- c(area(1,1), area(1,2), area(2,1,2,2), area(3,1), area(3,2))
+
+f3_1 + f3_2 + f3_5 + gtable_cbind(f3_4_1, f3_4_2) + f3_3 + plot_layout(design = layout, widths = c(0.8,1), heights = c(0.66,1,0.66)) + plot_annotation(tag_levels = "A")
+
+write.xlsx(list(results_emahan, results_quag, results_emahan_dodr, results_emahan_modsel), file="HFD_results.xlsx", 
+           creator = "Bharath Ananthasubramaniam", 
+           asTable = c(TRUE, TRUE, TRUE, TRUE),
+           sheetName = c("Eckel-Mahan (limma)", "Quagliarini", "Eckel-Mahan (DODR)", "Eckel-Mahan (Model Sel.)"),
+           borders = rep("surrounding",4))
 ```
 
 
@@ -715,7 +778,7 @@ se <- readRDS("data/GSE87425.RDS") %>%
 exp_des_keto <- colData(se) %>% as.data.frame %>% tibble %>%
                  dplyr::select(!!c("zt.ch1", "diet.ch1")) %>%
                  mutate(time = as.numeric(zt.ch1),
-                        group = fct_recode(diet.ch1, keto="ketogenic", control="Norma Chow"),
+                        group = fct_recode(diet.ch1, keto="Ketogenic", control="Norma Chow"),
                         group = fct_relevel(group, "control"))
 
 y_keto <- assay(se)
@@ -740,63 +803,92 @@ results_keto_modsel <- compareRhythms(y_keto, exp_des_keto, method = "mod_sel",
 
 ```{r keto_figs}
 df4_1 <- bind_rows(data.frame(category = table(results_keto$category), method = "limma"),
-                   data.frame(category = table(results_keto_dodr$category), method = "dodr"),
+                   data.frame(category = table(results_keto_dodr$category), method = "DODR"),
                    data.frame(category = table(results_keto_modsel$category), method = "model sel.")) %>%
          rename(category = category.Var1, freq = category.Freq) %>%
-         dplyr::filter(category != "noR")
+         dplyr::filter(category != "arrhy")
 
 f4_1 <- ggplot(df4_1) +
   geom_col(aes(x=category, y=freq, fill=method), position = "dodge") + scale_fill_colorblind() +
-  annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
+  # annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
   theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
-        legend.justification = "left") + ylab("number of DR genes") + xlab("")
+        legend.justification = "left", legend.box.margin = margin(-5,-5,-5,-20)) + ylab("number of transcripts") + xlab("")
 
 
 df4_2 <- results_keto %>%
          filter(diff_rhythmic) %>%
-                 mutate(amp_change = (Ketogenic_amp - control_amp),
-                      phase_change = exp(1i*Ketogenic_phase - 1i*control_phase))
+                 mutate(amp_change = (keto_amp - control_amp),
+                      phase_change = exp(1i*keto_phase - 1i*control_phase)) %>%
+         filter(category == "change")
 
 f4_2 <- ggplot(data=df4_2) +
   geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
   geom_vline(xintercept = 0, color = "grey80") +
   geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
-  geom_point(aes(x=amp_change, y = Arg(phase_change), color=category), size=0.4) +
-  theme(aspect.ratio = 1) + xlab("") + ylab("") + scale_color_tableau("Classic 10") +
+  geom_point(aes(x=amp_change, y = Arg(phase_change)), size=0.4) +
+  theme(aspect.ratio = 1) + xlab("") + ylab("")  +
   geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
   scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
   scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
-                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12, ) +
-  theme(aspect.ratio = 1, legend.position = "top", axis.line = element_blank(), 
-        axis.ticks = element_blank(), legend.title = element_blank(),
-        axis.text.x = element_text(size = 9), legend.key.size = unit(1, "line"),
-        axis.text.y=element_blank(), panel.grid.major = element_blank()) + 
+                     labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12) +
+  theme(aspect.ratio = 1, axis.line = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size = 9),
+        axis.text.y=element_blank(), panel.grid.major = element_blank(),
+        panel.border = element_blank()) + 
   coord_polar(theta="y", start=-pi)
 
 ```
 
 
-```{r enrichment, fig.height=3, fig.width=8}
+```{r Figure4, fig.height=4, fig.width=6.5}
 kegg_keto <- enrichKEGG(results_keto$entrezgene_id[results_keto$diff_rhythmic], universe = as.character(results_keto$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
 
 hallmark_keto <- enricher(results_keto$mgi_symbol[results_keto$diff_rhythmic], universe = as.character(results_keto$mgi_symbol), TERM2GENE = m_t2g_hallmark, qvalueCutoff = 1.0, pAdjustMethod = "none")
 
 df4_3_1 <- head(kegg_keto, n=10) %>%
            filter(qvalue<0.05) %>%
-           mutate(Description = str_wrap(Description, width=20),
+           mutate(Description = str_wrap(Description, width=18),
                   qvalue = scales::scientific(qvalue, digits = 3)) %>%
            dplyr::select(Description, qvalue)
 df4_3_2 <- head(hallmark_keto, n=10) %>%
            filter(qvalue<0.05) %>%
            mutate(Description = gsub("_", " ", sub("HALLMARK","",Description)),
-                  Description = str_wrap(str_to_sentence(Description), width=20),
-                  qvalue = scales::scientific(qvalue, digits = 3)) %>%
+                  Description = str_wrap(str_to_sentence(Description), width=18),
+                  qvalue = scales::scientific(qvalue, accuracy = 0.001)) %>%
            dplyr::select(Description, qvalue)
 
 f4_3_1 <- tableGrob(df4_3_1, theme = ttheme_default(base_size = 8), cols = c("KEGG", "qvalue"), rows = NULL)
 f4_3_2 <- tableGrob(df4_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark (MSigDB)", "qvalue"), rows = NULL)
 
-f4_1 + f4_2 + gtable_rbind(f4_3_1, f4_3_2) + plot_layout(nrow = 1) + plot_annotation(tag_levels = "a")
+
+ifng_genes_all <- unlist(strsplit("Irf9/Fcgr1/Cd274/Dhx58/Cmpk2/Rsad2/Mx2/Eif2ak2/Fas/Irf7/Ifih1/Nmi/Zbp1/Helz2/Samhd1/Adar/Ifi44/Gbp3/Cxcl9/Usp18/Trim21/Oas3/Oas2/Rtp4/Lgals3bp/Parp14/Cxcl10/Pml/Tap1/Ddx60/Parp12/Isg20/Znfx1/Stat2/Ddx58/Xaf1/Oasl1/Trafd1/Ifit2/Samd9l/Rnf213/Ifit3", split="/"))
+
+ifng_genes <- c("Irf9","Gbp3", "Rsad2", "Ifit3", "Dhx58", "Irf7")
+
+ifng_genes_ensembl <- filter(results_keto, mgi_symbol %in% ifng_genes)
+
+df4_4 <- y_keto[ifng_genes_ensembl$symbol,] %>% 
+           magrittr::set_colnames(paste(exp_des_keto$group, exp_des_keto$time, sep="_")) %>%
+           magrittr::set_rownames(ifng_genes_ensembl$mgi_symbol) %>%
+           data.frame %>% 
+           rownames_to_column(var="symbol") %>% 
+           gather(sample, value, -symbol) %>% 
+           separate(sample, c("grp", "time"), "_", convert = TRUE)
+
+f4_4 <- ggplot(df4_4, aes(time, value, linetype=grp)) + 
+  geom_point(size = 0.3) +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  facet_wrap(~ symbol, scales = "free_y", ncol = 6) + 
+  theme_custom(base_size = 9) + scale_linetype_manual(values = c("dashed","solid"), name=NULL, labels=c("control","ketogenic")) + scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
+  theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
+        panel.spacing.x = unit(8, "pt"), legend.box.margin = margin(b =-5), 
+        legend.margin = margin(0,0,0,0), legend.title = element_blank()) +
+  xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
+
+layout <- c(area(1,1), area(1,2), area(1,3), area(2,1,2,3))
+
+f4_1 + f4_2 + gtable_rbind(f4_3_1, f4_3_2) + f4_4 + plot_layout(design = layout, heights = c(1,0.3), widths = c(0.9,0.8,1)) + plot_annotation(tag_levels = "A")
 
 ```
 
@@ -808,7 +900,8 @@ se <- readRDS("data/GSE87425.RDS") %>%
 exp_des_keto_iec <- colData(se) %>% as.data.frame %>% tibble %>%
                  dplyr::select(!!c("zt.ch1", "diet.ch1")) %>%
                  mutate(time = as.numeric(zt.ch1),
-                        group = fct_recode(diet.ch1, keto="ketogenic", control="Norma Chow"))
+                        group = fct_recode(diet.ch1, keto="Ketogenic", control="Norma Chow"),
+                        group = fct_relevel(group, "control"))
 
 y_keto_iec <- assay(se)
 
@@ -821,33 +914,45 @@ y_keto_iec <- y_keto_iec[keep, ]
 results_keto_iec <- compareRhythms(y_keto_iec, exp_des_keto_iec, method = "limma", 
                             just_classify = FALSE, compare_fdr = 0.05) %>% 
              inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+
+results_keto_iec_dodr <- compareRhythms(y_keto_iec, exp_des_keto_iec, method = "dodr", 
+                            just_classify = FALSE, compare_fdr = 0.05) %>% 
+             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
+results_keto_iec_modsel <- compareRhythms(y_keto_iec, exp_des_keto_iec, method = "mod_sel", 
+                            just_classify = FALSE) %>% 
+             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("symbol"="ensembl_gene_id")) 
 ```
 
-```{r enrichment_iec, fig.height=3, fig.width=7.5}
+```{r FigureS4, fig.height=4.5, fig.width=6.5}
 kegg_iec <- enrichKEGG(results_keto_iec$entrezgene_id[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
 
 hallmark_iec <- enricher(results_keto_iec$mgi_symbol[results_keto_iec$diff_rhythmic], universe = as.character(results_keto_iec$mgi_symbol), TERM2GENE = m_t2g_hallmark)
 
-dfS4_1 <- data.frame(table(results_keto_iec$category)) %>%
-         rename(category = Var1, freq = Freq)
+dfS4_1 <- bind_rows(data.frame(category = table(results_keto_iec$category), method = "limma"),
+                   data.frame(category = table(results_keto_iec_dodr$category), method = "DODR"),
+                   data.frame(category = table(results_keto_iec_modsel$category), method = "model sel.")) %>%
+         rename(category = category.Var1, freq = category.Freq) %>%
+         dplyr::filter(category != "arrhy")
 
-fS4_1 <- ggplot(df4_1) +
-  geom_col(aes(x=category, y=freq), position = "dodge", width = 0.5) +
-  annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
-  ylab("number of DR genes") + xlab("")
+fS4_1 <- ggplot(dfS4_1) +
+  geom_col(aes(x=category, y=freq, fill=method), position = "dodge") + scale_fill_colorblind() +
+  # annotate("text", x = 3, y = c(950, 800), label= c("A = control", "B = ketogenic"), hjust = 0, size = 0.35*9) +
+  theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
+        legend.justification = "left", legend.box.margin = margin(-5,-5,-5,-20)) + ylab("number of transcripts") + xlab("")
 
 dfS4_2 <- results_keto_iec %>%
          filter(diff_rhythmic) %>%
-                 mutate(amp_change = (Ketogenic_amp - control_amp),
-                      phase_change = exp(1i*Ketogenic_phase - 1i*control_phase))
+                 mutate(amp_change = (keto_amp - control_amp),
+                      phase_change = exp(1i*keto_phase - 1i*control_phase)) %>%
+         filter(category == "change")
 
 fS4_2 <- ggplot(data=dfS4_2) +
   geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
   geom_vline(xintercept = 0, color = "grey80") +
   geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
-  geom_point(aes(x=amp_change, y = Arg(phase_change), color=category, shape = category), size=0.75) +
+  geom_point(aes(x=amp_change, y = Arg(phase_change)), size=0.5) +
   scale_shape_manual(values = c(0, 3, 20)) +
-  theme(aspect.ratio = 1) + xlab("") + ylab("") + scale_color_tableau("Classic 10") +
+  theme(aspect.ratio = 1) + xlab("") + ylab("") +
   geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
   scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
   scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
@@ -860,7 +965,7 @@ fS4_2 <- ggplot(data=dfS4_2) +
 
 dfS4_3_1 <- head(kegg_iec, n=3) %>%
            mutate(Description = str_wrap(Description, width=20),
-                  qvalue = scales::comma(qvalue, digits = 3)) %>%
+                  qvalue = scales::comma(qvalue, accuracy = 0.001)) %>%
            dplyr::select(Description, qvalue)
 dfS4_3_2 <- head(hallmark_iec, n=10) %>%
            filter(qvalue<0.05) %>%
@@ -872,9 +977,38 @@ dfS4_3_2 <- head(hallmark_iec, n=10) %>%
 fS4_3_1 <- tableGrob(dfS4_3_1, theme = ttheme_default(base_size = 8), cols = c("KEGG", "qvalue"), rows = NULL)
 fS4_3_2 <- tableGrob(dfS4_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark genes(MSigDB)", "qvalue"), rows = NULL)
 
-fS4_1 + fS4_2 + gtable_rbind(fS4_3_1, fS4_3_2) + plot_layout(nrow = 1, widths = c(0.8,1,1)) + plot_annotation(tag_levels = "a")
+keto_iec_genes <- c("Nr1d1", "Nr1d2", "Tef", "Npas2", "Arntl", "Per2", "Nfil3", "Dbp", "Ppara", "Pparg", "Cyp51", "Ppargc1a")
+
+keto_iec_ensembl <- filter(results_keto_iec, mgi_symbol %in% keto_iec_genes)
+
+dfS4_4 <- y_keto_iec[keto_iec_ensembl$symbol,] %>% 
+           magrittr::set_colnames(paste(exp_des_keto_iec$group, exp_des_keto_iec$time, sep="_")) %>%
+           magrittr::set_rownames(keto_iec_ensembl$mgi_symbol) %>%
+           data.frame %>% 
+           rownames_to_column(var="symbol") %>% 
+           gather(sample, value, -symbol) %>% 
+           separate(sample, c("grp", "time"), "_", convert = TRUE)
+
+fS4_4 <- ggplot(dfS4_4, aes(time, value, linetype=grp)) + 
+  geom_point(size = 0.3) +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  facet_wrap(~ symbol, scales = "free_y", ncol = 6) + 
+  theme_custom(base_size = 9) + scale_linetype_manual(values = c("dashed","solid"), name=NULL, labels=c("control","ketogenic")) + scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
+  theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
+        panel.spacing.x = unit(8, "pt"), legend.box.margin = margin(-5,-5,-5,-5), 
+        legend.margin = margin(0,0,0,0), legend.title = element_blank()) +
+  xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
+
+write.xlsx(list(results_keto, results_keto_dodr, results_keto_modsel, results_keto_iec, results_keto_iec_dodr, results_keto_iec_modsel), file="KD_results.xlsx", 
+           creator = "Bharath Ananthasubramaniam", 
+           asTable = rep(TRUE, 6),
+           sheetName = c("Liver (limma)", "Liver (DODR)", "Liver (Model sel.)", "IEC (limma)", "IEC (DODR)", "IEC (Model sel.)"),
+           borders = rep("surrounding",6))
 
 
+layout <- c(area(1,1), area(1,2), area(1,3), area(2,1,2,3))
+
+fS4_1 + fS4_2 + gtable_rbind(fS4_3_1, fS4_3_2) + fS4_4 + plot_layout(design = layout, heights = c(1,0.9), widths = c(0.9,0.8,1)) + plot_annotation(tag_levels = "A")
 
 ```
 
@@ -884,8 +1018,8 @@ se <- readRDS("data/PRJNA449625.RDS")
 exp_des_pei <- colData(se) %>% as.data.frame %>% tibble %>%
                  dplyr::select(!!c("treatment", "Genotype", "replicate")) %>%
                  mutate(time = as.numeric(gsub("CT", "", treatment)),
-                        group = factor(Genotype),
-                        group = relevel(group, "WT"),
+                        group = fct_inorder(Genotype),
+                        group = fct_relevel(group, "WT"),
                         batch = factor(make.names(replicate)))
 
 y_pei <- assay(se, "countsFromAbundance")
@@ -913,36 +1047,38 @@ df5_1 <- bind_rows(data.frame(category = table(results_pei$category), method = "
 f5_1 <- ggplot(df5_1) +
   geom_col(aes(x=category, y=freq, fill=method), position = "dodge", width=0.5) + scale_fill_colorblind() +
   scale_y_log10() +
-  annotate("text", x = 3, y = c(2000, 600), label= c("A = WT", "B = p66KO"), hjust = 0, size = 0.35*9) +
+  # annotate("text", x = 3, y = c(2000, 600), label= c("A = WT", "B = p66KO"), hjust = 0, size = 0.35*9) +
   theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
-        legend.justification = "left") + ylab("number of DR genes") + xlab("")
+        legend.justification = "left", legend.box.margin=margin(b=-5), legend.margin = margin()) + 
+  ylab("number of transcripts") + xlab("")
 
 df5_2 <- results_pei_deseq %>%
          filter(diff_rhythmic) %>%
                  mutate(amp_change = (P66KO_amp - WT_amp),
-                      phase_change = exp(1i*P66KO_phase - 1i*WT_phase))
+                      phase_change = exp(1i*P66KO_phase - 1i*WT_phase)) %>%
+         filter(category == "change")
 
 f5_2 <- ggplot(data=df5_2) +
   geom_vline(xintercept = c(-1,1), linetype="dashed", color="grey80") +
   geom_vline(xintercept = 0, color = "grey80") +
   geom_hline(yintercept = seq(-2*pi/3, pi, pi/3), color="grey80") +
-  geom_point(aes(x=amp_change, y = Arg(phase_change), color=category, shape = category), size=0.75) +
-  theme(aspect.ratio = 1) + xlab("") + ylab("") + scale_color_tableau("Classic 10") +
+  geom_point(aes(x=amp_change, y = Arg(phase_change)), size=0.2, alpha=0.8) +
+  theme(aspect.ratio = 1) + xlab("") + ylab("") +
   scale_shape_manual(values = c(0, 3, 20)) +
   geom_text(data=data.frame(x=seq(-1,1), y=pi/2), aes(x=x, y=y, label=x), nudge_x = -0.2, size=9*0.35) + 
   scale_x_continuous(breaks=seq(-2,1), limits = c(-2,1), expand = c(0.1,0)) + 
   scale_y_continuous(breaks = seq(-2*pi/3, pi, pi/3), limits=c(-pi,pi), 
                      labels = ((12/pi*seq(-2*pi/3, pi, pi/3) + 12) %% 24) - 12, ) +
-  theme(aspect.ratio = 1, legend.position = "top", axis.line = element_blank(), 
-        axis.ticks = element_blank(), legend.title = element_blank(),
-        axis.text.x = element_text(size = 9), legend.key.size = unit(1, "line"),
-        axis.text.y=element_blank(), panel.grid.major = element_blank()) + 
+  theme(axis.line = element_blank(), axis.ticks = element_blank(),
+        axis.text.x = element_text(size = 9), axis.text.y=element_blank(), 
+        panel.grid.major = element_blank(), plot.margin = margin(), 
+        axis.title = element_blank(), plot.background = element_blank()) + 
   coord_polar(theta="y", start=-pi)
 
 
 ```
 
-```{r pei_enrichment, fig.height=3, fig.width=7.5}
+```{r Figure5, fig.height=4.5, fig.width=6.5}
 go_pei <- enrichGO(results_pei_deseq$entrezgene_id[results_pei_deseq$diff_rhythmic], org.Mm.eg.db, ont = "BP", universe = as.character(results_pei$entrezgene_id), qvalueCutoff = 0.5)
 
 kegg_pei <- enrichKEGG(results_pei_deseq$entrezgene_id[results_pei_deseq$diff_rhythmic], universe = as.character(results_pei_deseq$entrezgene_id), organism = "mmu", keyType = "ncbi-geneid", pvalueCutoff = 1.0, qvalueCutoff = 1.0, minGSSize = 5)
@@ -961,10 +1097,37 @@ df5_3_2 <- head(hallmark_pei, n=10) %>%
            dplyr::select(Description, qvalue)
 
 f5_3_1 <- tableGrob(df5_3_1, theme = ttheme_default(base_size = 8), cols = c("GO (BP)", "qvalue"), rows = NULL)
-f5_3_2 <- tableGrob(df5_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark genes(MSigDB)", "qvalue"), rows = NULL)
+f5_3_2 <- tableGrob(df5_3_2, theme = ttheme_default(base_size = 8), cols = c("Hallmark genes \n (MSigDB)", "qvalue"), rows = NULL)
 
+y_pei_abund <- assay(se, "abundance") %>% {log2(. + 0.01)}
 
-f5_1 + f5_2 + gtable_rbind(f5_3_1, f5_3_2) + plot_layout(nrow = 1, widths = c(0.8,1,1)) + plot_annotation(tag_levels = "a")
+y_pei_abund <- limma::removeBatchEffect(y_pei_abund, batch = exp_des_pei$batch)
+
+kras_genes <- unlist(strsplit("Sox9/G0s2/Dusp6/Flt4/Pecam1/Eng/Bmp2/Sparcl1/Plvap/Nr0b2/Cfhr1/Tspan7", split="/"))
+
+kras_genes_ensembl <- filter(results_pei_deseq, mgi_symbol %in% kras_genes)
+
+df5_4 <- y_pei_abund[kras_genes_ensembl$symbol,] %>% 
+           magrittr::set_colnames(paste(exp_des_pei$group, exp_des_pei$time, sep="_")) %>%
+           magrittr::set_rownames(kras_genes_ensembl$mgi_symbol) %>%
+           data.frame %>% 
+           rownames_to_column(var="symbol") %>% 
+           gather(sample, value, -symbol) %>% 
+           separate(sample, c("grp", "time"), "_", convert = TRUE) %>%
+           mutate(grp = fct_relevel(grp, "WT"))
+
+f5_4 <- ggplot(df5_4, aes(time, value, linetype=grp)) + 
+  geom_point(size = 0.3) +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  facet_wrap(~ symbol, scales = "free_y", ncol = 6, labeller = label_one) + 
+  theme_custom(base_size = 9)  + scale_linetype_manual(values = c("dashed","solid"), name=NULL, labels=c("control", expression(p66^Shc~KO))) + 
+  scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
+  theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), panel.spacing = unit(8, "pt"), legend.box.margin = margin(b=-5, t=-10)) +
+  xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
+
+layout <- c(area(1,1), area(1,2), area(1,3), area(2,1,2,3))
+
+f5_1 + f5_2 + gtable_rbind(f5_3_1, f5_3_2) + f5_4 + plot_layout(design = layout, widths = c(1,0.9,1), heights = c(1,1)) + plot_annotation(tag_levels = "A")
 ```
 
 
