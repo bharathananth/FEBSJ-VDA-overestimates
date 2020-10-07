@@ -21,6 +21,7 @@ library(msigdbr)
 suppressPackageStartupMessages(library(tidyverse))
 suppressPackageStartupMessages(library(org.Mm.eg.db))
 library(openxlsx)
+library(precrec)
 ```
 
 ```{r setup, include=FALSE}
@@ -46,7 +47,7 @@ theme_custom <- function(base_size = 11, base_family = "Helvetica") {
       line = element_line(size = base_size/11, color = "grey20"),
       rect = element_rect(fill = "white", size = base_size/15),
       text = element_text(size = base_size),
-      plot.margin = margin(0.2, 0.2, 0.2, 0.2, unit = "lines"),
+      plot.margin = margin(0.1, 0.1, 0.1, 0.1, unit = "lines"),
       plot.background = element_rect(linetype = 0),
       
       panel.border = element_blank(),
@@ -310,7 +311,7 @@ for (gene in rhythmic_in_A) {
 }
 ```
 
-```{r Figure1, fig.width = 7, fig.height=2.5, eval=TRUE}
+```{r Figure1, fig.width = 5, fig.height=4.5, eval=TRUE}
 pvm_ex_2 <- rhythm_analysis(new_expr, exp_design)
 
 df1_2 <- expand.grid(fdr_cutoff = 10^seq(-9, log10(0.999), by=0.1),
@@ -334,30 +335,63 @@ df1_2 <- cbind(df1_2, t(roc))
 f1_2 <- ggplot(df1_2) +
   geom_area(aes_(x=~fdr_cutoff, y=~FP+TP), color = "black", fill = "white") +
   geom_area(aes_(x=~fdr_cutoff, y=~TP), fill = "grey70", position="identity", alpha=0.75) +
-  facet_wrap(~factor(amp_cutoff), nrow = 1,
-             labeller = as_labeller(setNames(paste0('~A>', amp_choices), amp_choices), label_parsed)) +
+  facet_wrap(~factor(amp_cutoff), ncol = 1,
+             labeller = as_labeller(setNames(paste0('~A>', amp_choices), amp_choices), label_parsed), scales = "free") +
   geom_hline(aes_(yintercept=~sum(true_dr_genes)), linetype = "twodash", size = 0.6)  +
-  xlab("false discovery cutoff for rhythms") + ylab("DiffR genes") +
+  xlab("false discovery cutoff for rhythms") + ylab("DiffR transcripts") +
   scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.0001, 0.001, 0.01, 0.1),
                      labels = scales::trans_format("log10", scales::math_format(10^.x))) +
-  coord_cartesian(xlim = c(0.00001,0.5)) + scale_y_continuous(expand = c(0.01,0))
+  coord_cartesian(xlim = c(0.00001,0.5)) + scale_y_continuous(expand = c(0.01,0)) + theme(panel.spacing.y = unit(1.2, "lines"))
 
+point_1 <- with(df1_2, which.min(abs(TP/(TP+FP)-0.2) + abs(TP/(TP+FN)-0.2)))
+point_2 <- with(df1_2, which.min(abs(fdr_cutoff - 0.05)))
 
-f1_1 + f1_2 + plot_layout(nrow=1, widths = c(1,2)) + plot_annotation(tag_levels = 'A')
-
-```
-
-```{r artificial-DR-rocs}
-ggplot(df1_2, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
+f1_3 <- ggplot(df1_2, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
   geom_hline(aes_(yintercept=~N/(N + nrow(pvm_ex_2))), color="grey90") +
-  geom_path(color="black") +
-  xlab("Fraction of DiffR transcripts found (Recall)") + ylab("Fraction of true DiffR transcripts (Precision)") + coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+  geom_path(color="black") + scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+  geom_point(aes_(x=~TP/(TP+FN), y=~TP/(FP+TP)), shape=21, size=2, stroke=0.75, fill="white", data = df1_2[point_1,]) +
+  geom_point(aes_(x=~TP/(TP+FN), y=~TP/(FP+TP)), shape=21, size=2, stroke=0.75, fill="grey50", data = df1_2[point_2,]) +
+  xlab("Recall = DiffR found/DiffR present") + 
+  ylab("Precision = true DiffR hits/ DiffR hits") + coord_cartesian(xlim=c(0,0.5), ylim=c(0,0.5))
+
+
+layout <- c(area(1,1), area(1,2,2,2), area(2,1))
+
+
+f1_1 + f1_2 + f1_3 + plot_layout(design = layout, widths = c(1,0.9)) + plot_annotation(tag_levels = 'A')
 
 ```
 
-```{r Figure1, fig.width = 7, fig.height=2.5, eval=TRUE}
+```{r pvm_roc_a_cutoff, eval=FALSE}
+df1_2_2 <- expand.grid(fdr_cutoff = 10^seq(-9, log10(0.999), by=0.1),
+                  amp_cutoff = amp_choices)
+rhythmic_in_A_large_amp <- rhythmic_in_A[pvm_ex_2[rhythmic_in_A, "A_amp"] > 0.5]
 
+true_dr_genes <- rownames(pvm_ex_2) %in% rhythmic_in_A_large_amp
+
+roc <- vapply(seq(nrow(df1_2_2)),
+              function(i) {
+                est_dr_genes <- xor(pvm_ex_2$adj_p_val_A < df1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_2$A_amp > df1_2[i, "amp_cutoff"],
+                                    pvm_ex_2$adj_p_val_B < df1_2[i, "fdr_cutoff"] &
+                                      pvm_ex_2$B_amp > df1_2[i, "amp_cutoff"])
+                tp <- sum(true_dr_genes & est_dr_genes)
+                fn <- sum(true_dr_genes & !est_dr_genes)
+                fp <- sum(!true_dr_genes & est_dr_genes)
+                tn <- sum(!true_dr_genes & !est_dr_genes)
+                return(c(TP = tp, FP = fp, FN = fn, TN=tn))
+              }, FUN.VALUE = numeric(4))
+df1_2_2 <- cbind(df1_2_2, t(roc))
+
+ggplot(df1_2_2, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(pvm_ex_2))), color="grey90") +
+  geom_path(color="black") + scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+  xlab("Recall = DiffR found/DiffR present") + 
+  ylab("Precision = true DiffR hits/ DiffR hits") + coord_cartesian(xlim=c(0,0.5), ylim=c(0,0.5))
 ```
+
 
 * for all typical choices of fdr cutoff, larger number of DR genes are predicted by PVM
 * However, the predicted DR genes account for only for 80% of true DR genes
@@ -365,13 +399,178 @@ ggplot(df1_2, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) 
 * Notice the number of true DR genes in set varies non-monotonically.
 * Using an amplitude cutoff, controls the inflation in the number of DR genes, but at the cost of even fewer true hits (lower power)
 
-```{r hughes-data-supp, eval=TRUE}
+```{r Figure6, fig.width=6.5, fig.height=4}
+all_genes <- data.frame(symbol = rownames(new_expr))
+
+limma_ex_2_1 <- compareRhythms(new_expr, exp_design = exp_design, method = "limma",
+                             compare_fdr = 1.0, amp_cutoff = amp_choices[1], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+limma_ex_2_2 <- compareRhythms(new_expr, exp_design = exp_design, method = "limma",
+                             compare_fdr = 1.0, amp_cutoff = amp_choices[2], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+df6_1 <- evalmod(scores = join_scores(-log10(limma_ex_2_1$adj_p_val_DR),
+                                      -log10(limma_ex_2_2$adj_p_val_DR)),
+        labels = limma_ex_2_1$symbol %in% rhythmic_in_A,
+        modnames = as.character(amp_choices)) %>%
+        fortify(reduce_points=TRUE) %>% filter(curvetype == "PRC")
+
+
+f6_1 <- ggplot(df6_1, aes(x=x, y=y, linetype=modname)) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(limma_ex_2_1))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[1]) + 
+  scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+  ylab("Precision = true DiffR hits/ DiffR hits") + coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+
+df6_2 <- evalmod(scores = join_scores(-log10(limma_ex_2_1$adj_p_val_DR),
+                                      -log10(limma_ex_2_2$adj_p_val_DR)),
+        labels = limma_ex_2_1$symbol %in% rhythmic_in_A_large_amp,
+        modnames = as.character(amp_choices)) %>%
+        fortify(reduce_points=TRUE) %>% filter(curvetype == "PRC")
+
+f6_2 <- ggplot(df6_2, aes(x=x, y=y, linetype=modname)) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(limma_ex_2_1))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[1]) + 
+  scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+  ylab("Precision = true DiffR hits/ DiffR hits") + coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+ 
+dodr_ex_2_1 <- compareRhythms(new_expr, exp_design = exp_design, method = "dodr",
+                             compare_fdr = 1.0, amp_cutoff = amp_choices[1], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+dodr_ex_2_2 <- compareRhythms(new_expr, exp_design = exp_design, method = "dodr",
+                             compare_fdr = 1.0, amp_cutoff = amp_choices[2], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+df6_3 <- evalmod(scores = join_scores(-log10(dodr_ex_2_1$adj_p_val_dodr),
+                                      -log10(dodr_ex_2_2$adj_p_val_dodr)),
+        labels = dodr_ex_2_1$symbol %in% rhythmic_in_A,
+        modnames = as.character(amp_choices)) %>%
+        fortify(reduce_points=TRUE) %>% filter(curvetype == "PRC")
+
+f6_3 <- ggplot(df6_3, aes(x=x, y=y, linetype=modname)) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(dodr_ex_2_1))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[2]) + 
+  scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+ coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0)) + theme(legend.position = "none")
+
+df6_4 <- evalmod(scores = join_scores(-log10(dodr_ex_2_1$adj_p_val_dodr),
+                                      -log10(dodr_ex_2_2$adj_p_val_dodr)),
+        labels = dodr_ex_2_1$symbol %in% rhythmic_in_A_large_amp,
+        modnames = as.character(amp_choices)) %>%
+        fortify(reduce_points=TRUE) %>% filter(curvetype == "PRC")
+
+f6_4 <- ggplot(df6_4, aes(x=x, y=y, linetype=modname)) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(dodr_ex_2_1))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[2]) + 
+  scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+  xlab("Recall = DiffR found/DiffR present") + theme(legend.position = "none") +
+   coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+
+
+mod_sel_ex_2_1 <- compareRhythms(new_expr, exp_design = exp_design, method = "mod_sel",
+                             schwarz_wt_cutoff = 0.0, amp_cutoff = amp_choices[1], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+mod_sel_ex_2_2 <- compareRhythms(new_expr, exp_design = exp_design, method = "mod_sel",
+                             schwarz_wt_cutoff = 0.0, amp_cutoff = amp_choices[2], just_classify = FALSE) %>%
+                right_join(all_genes, by = "symbol") %>% arrange(symbol)
+
+grid_points <- sort(mod_sel_ex_2_1$weights)
+grid_points <- grid_points[seq(1, length(grid_points), 20)]
+
+df6_5 <- expand.grid(schwarz_wt_cutoff = grid_points,
+                  amp_cutoff = amp_choices)
+
+roc <- vapply(seq(nrow(df6_5)),
+              function(i) {
+                if (df6_5[i, "amp_cutoff"] == amp_choices[1]) {
+                    est_dr_genes <- filter(mod_sel_ex_2_1, weights > df6_5[i, "schwarz_wt_cutoff"] & category %in% c("loss", "gain", "change"))
+                } else {
+                    est_dr_genes <- filter(mod_sel_ex_2_2, weights > df6_5[i, "schwarz_wt_cutoff"] & category %in% c("loss", "gain", "change"))
+                }
+                tp <- length(intersect(est_dr_genes$symbol, rhythmic_in_A))
+                fn <- length(setdiff(rhythmic_in_A, est_dr_genes$symbol))
+                fp <- length(setdiff(est_dr_genes$symbol, rhythmic_in_A))
+                return(c(TP = tp, FP = fp, FN = fn))
+              }, FUN.VALUE = numeric(3))
+df6_5 <- cbind(df6_5, t(roc))
+
+prc_interpolate <- function(TP, FP, maxTrue, maxFeatures) {
+  x <- seq(maxTrue-TP)
+  return(data.frame("TP" = TP + x, "FP" = FP + (maxFeatures - maxTrue - FP)*x/(maxTrue - TP), "FN" = maxTrue-TP-x))
+}
+
+df6_5ext <- df6_5 %>% group_by(amp_cutoff) %>% 
+  arrange(desc(TP)) %>% 
+  filter(row_number()==1) %>%
+  summarize(extn = prc_interpolate(TP, FP, 500, nrow(all_genes)), .groups="rowwise") %>%
+  mutate(schwarz_wt_cutoff = 0, .before=amp_cutoff) %>%
+  as.matrix()
+
+colnames(df6_5ext) <- gsub("extn.", "", colnames(df6_5ext))
+df6_5 <- bind_rows(df6_5, data.frame(df6_5ext)) %>%
+         group_by(amp_cutoff) %>% arrange(desc(TP))
+
+f6_5 <- ggplot(df6_5, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(pvm_ex_2))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[3]) + scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+ coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0)) + theme(legend.position = "none") +
+  xlab("") + ylab("")
+
+df6_6 <- expand.grid(schwarz_wt_cutoff = grid_points,
+                  amp_cutoff = amp_choices)
+
+roc <- vapply(seq(nrow(df6_6)),
+              function(i) {
+                if (df6_6[i, "amp_cutoff"] == amp_choices[1]) {
+                    est_dr_genes <- filter(mod_sel_ex_2_1, weights > df6_6[i, "schwarz_wt_cutoff"] & category %in% c("loss", "gain", "change"))
+                } else {
+                    est_dr_genes <- filter(mod_sel_ex_2_2, weights > df6_6[i, "schwarz_wt_cutoff"] & category %in% c("loss", "gain", "change"))
+                }
+                tp <- length(intersect(est_dr_genes$symbol, rhythmic_in_A_large_amp))
+                fn <- length(setdiff(rhythmic_in_A_large_amp, est_dr_genes$symbol))
+                fp <- length(setdiff(est_dr_genes$symbol, rhythmic_in_A_large_amp))
+                return(c(TP = tp, FP = fp, FN = fn))
+              }, FUN.VALUE = numeric(3))
+df6_6 <- cbind(df6_6, t(roc))
+
+df6_6ext <- df6_6 %>% group_by(amp_cutoff) %>% 
+  arrange(desc(TP)) %>% 
+  filter(row_number()==1) %>%
+  summarize(extn = prc_interpolate(TP, FP, length(rhythmic_in_A_large_amp), nrow(all_genes)), .groups="rowwise") %>%
+  mutate(schwarz_wt_cutoff = 0, .before=amp_cutoff) %>%
+  as.matrix()
+
+colnames(df6_6ext) <- gsub("extn.", "", colnames(df6_6ext))
+df6_6 <- bind_rows(df6_6, data.frame(df6_6ext)) %>%
+         group_by(amp_cutoff) %>% arrange(desc(TP))
+
+f6_6 <- ggplot(df6_6, aes_(x=~TP/(TP+FN), y=~TP/(FP+TP), linetype=~factor(amp_cutoff))) + 
+  geom_hline(aes_(yintercept=~N/(N + nrow(pvm_ex_2))), color="grey60", linetype="twodash") +
+  geom_path(color=colorblind_pal()(3)[3]) + scale_linetype_manual(name="", labels=parse(text = paste0('A > ', amp_choices)), 
+                        values = c("solid", "dashed")) + 
+ coord_cartesian(xlim=c(0,1.0), ylim=c(0,1.0))
+
+f6_1 + f6_3 + f6_5 + f6_2 + f6_4 + f6_6 + plot_layout(nrow = 2, guides='collect') + plot_annotation(tag_levels = "A")
+
+```
+
+
+
+```{r hughes-data-supp, eval=FALSE}
 liver_hughes_sub <- liver_hughes[, exp_design$time %% 2 == 0]
 exp_design_sub <- exp_design[exp_design$time %% 2 == 0, ]
 exp_design_sub$group <- ifelse(exp_design_sub$time %% 4, "O", "E")
 ```
 
-```{r analyze-odd-even-supp, fig.width=4, eval=TRUE}
+```{r analyze-odd-even-supp, fig.width=4, eval=FALSE}
 pvm_ex_S1 <- rhythm_analysis(assay(liver_hughes_sub), exp_design_sub)
 
 dfS1_1 <- expand.grid(fdr_cutoff = 10^seq(-3.5, 0, by = 0.2),
@@ -402,8 +601,8 @@ fS1_1 <- ggplot(dfS1_1) +
 
 ```
 
-```{r artificial-DR-data-supp, eval=TRUE}
-N <- 0.1*nrow(pvm_ex_S1)
+```{r artificial-DR-data-supp, eval=FALSE}
+#N <- 5000.1*nrow(pvm_ex_S1)
 
 large_amp_genes <- pvm_ex_S1[pvm_ex_S1$A_amp > amp_cutoff, ]
 
@@ -418,7 +617,7 @@ for (gene in rhythmic_in_A) {
 }
 ```
 
-```{r FigureS1, fig.width=7, fig.height=2.5, eval=TRUE}
+```{r FigureS1, fig.width=7, fig.height=2.5, eval=FALSE}
 pvm_ex_S2 <- rhythm_analysis(new_expr_sub, exp_design_sub)
 
 dfS1_2 <- expand.grid(fdr_cutoff = 10^seq(-6, log10(0.25), by=0.05),
@@ -443,7 +642,7 @@ fS1_2 <- ggplot(dfS1_2) +
   facet_wrap(~factor(amp_cutoff), nrow = 1,
              labeller = as_labeller(setNames(paste0('~A >', amp_choices), amp_choices), label_parsed)) +
   geom_hline(aes_(yintercept=~sum(true_dr_genes)/nrow(pvm_ex_S2)), linetype = "twodash") +
-  xlab("false discovery cutoff for rhythms") + ylab("DiffR genes") + 
+  xlab("false discovery cutoff for rhythms") + ylab("DiffR transcripts") + 
   scale_x_continuous(trans = "log10", expand = c(0,0), breaks = c(0.01, 0.05, 0.2)) +
   coord_cartesian(xlim = c(0.005,0.25)) + scale_y_continuous(labels = scales::percent)
 
@@ -489,7 +688,7 @@ f2_2 <- ggplot(df_2_2) +
   geom_line(aes_(x = ~x, y = ~y), color = "grey20", data = df_annotation) +
   geom_point(aes_(x = ~x, y = ~y), color = "grey20", size = 3.5, data = df_annotation) +
   geom_point(aes_(x = ~x, y = ~y, shape = ~group), color = "white", size = 1.75, data = df_annotation) +
-  scale_shape_identity() + ylab("diff. rhythmic genes")
+  scale_shape_identity() + ylab("DiffR transcripts")
 
 ```
 
@@ -541,7 +740,7 @@ f2_4 <- ggplot(tidyr::gather(df_2_4, type, value, -amp_cutoff)) +
   geom_hline(aes_(yintercept = ~sum(true_dr_genes)), linetype = "twodash") +
   scale_fill_manual(name = "", values = c("white", "grey70")) +
    scale_x_discrete(labels = parse(text = paste0('A >', amp_choices)), name = NULL) + 
-  theme(legend.key.height = unit(0.2, "lines")) + ylab("diff. rhythmic genes")
+  theme(legend.key.height = unit(0.2, "lines")) + ylab("DiffR transcripts")
 
 layout <- c(area(1,1), area(1, 2, 1, 4), area(2, 1, 2, 2), area(2, 3, 2, 4))
 
