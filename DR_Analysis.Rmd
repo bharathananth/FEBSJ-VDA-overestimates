@@ -621,7 +621,7 @@ fS1_1_1 + fS1_1_2 + fS1_2 + fS1_3 + fS1_4 + fS1_5 + plot_layout(nrow=2) +
 
 ## Applying the appropriate methods
 
-```{r Figure3, echo=FALSE, fig.height=3, fig.width=5.5}
+```{r Figure3, echo=FALSE, fig.height=3, fig.width=5.75}
 all_genes <- data.frame(id = rownames(new_expr))
 
 limma_ex_2_1 <- compareRhythms(new_expr, exp_design = exp_design, method = "limma",
@@ -722,7 +722,8 @@ df3_4 <- bind_rows(df3_4, data.frame(df3_4ext)) %>%
                y = TP/(TP + FP))
 
 df3 <- bind_rows(df3_1, df3_2, df3_3, df3_4) %>%
-       dplyr::select(c("x", "y", "amp_cutoff", "method", "dset"))
+       dplyr::select(c("x", "y", "amp_cutoff", "method", "dset")) %>%
+       dplyr::filter((amp_cutoff == 0 & dset=="low")|(amp_cutoff==0.5 & dset=="high"))
 
 op_points <- lapply(list(limma_ex_2_2, mod_sel_ex_2_2),
        function(d) {
@@ -746,18 +747,18 @@ op_points <- lapply(list(limma_ex_2_2, mod_sel_ex_2_2),
   bind_rows
 
 ggplot(df3, aes(x=x, y = y, color=method, linetype=factor(amp_cutoff))) + geom_line(size=0.5) + 
-  geom_point(shape=21, fill="white", data=op_points, stroke=0.75, show.legend = FALSE) +
+  geom_point(shape=21, fill="white", data=filter(op_points, dset=="high"), stroke=0.75, show.legend = FALSE) +
   facet_grid(cols = vars(factor(dset, levels = c("low", "high"))), 
-             labeller = as_labeller(c(low = "Target: all true DiffR transcripts", 
-                                      high = "Target: large ampl. true DiffR transcripts"))) + 
+             labeller = as_labeller(c(low = sprintf("Target: all %d true DiffR transcripts", length(rhythmic_in_A)), 
+                                      high = sprintf("Target: %s large ampl. true DiffR transcripts", length(rhythmic_in_A_large_amp))))) + 
   scale_linetype_manual(name=parse(text = 'A[cutoff]'), labels=amp_choices, 
-                        values = c("solid", "longdash")) + 
+                        values = c("longdash", "solid")) + 
   scale_color_colorblind() + theme(legend.title.align = 0, legend.justification = 0,
                                           legend.margin = margin(r=1.5, unit = "lines")) +
   labs(x = "true DiffR transcripts recovered", y = "true DiffR transcripts in DiffR calls", color="")
 ```
 
-```{r FigureS3, echo=FALSE, fig.height=3, fig.width=5.5}
+```{r FigureS3, echo=FALSE, fig.height=3, fig.width=5.75}
 dodr_ex_2_1 <- compareRhythms(new_expr, exp_design = exp_design, method = "dodr",
                              compare_fdr = 1.0, amp_cutoff = amp_choices[1], just_classify = FALSE) %>%
                 right_join(all_genes, by = "id") %>% arrange(id)
@@ -780,9 +781,11 @@ dfS3_2 <- evalmod(scores = join_scores(-log10(dodr_ex_2_1$adj_p_val_dodr),
         fortify(reduce_points=TRUE) %>% filter(curvetype == "PRC")%>%
         mutate(method = "DODR", dset = "high", amp_cutoff = as.numeric(levels(modname))[modname])
 
-dfS3 <- bind_rows(df3_1, df3_2, dfS3_1, dfS3_2) %>%
+dfS3_3 <- bind_rows(df3_1, df3_2, dfS3_1, dfS3_2) %>%
        dplyr::select(c("x", "y", "amp_cutoff", "method", "dset")) %>%
-       mutate(method = ifelse(method == "hypothesis testing", "limma", method))
+       mutate(method = ifelse(method == "hypothesis testing", "limma", method)) %>%
+       dplyr::filter((amp_cutoff == 0 & dset=="low")|(amp_cutoff==0.5 & dset=="high"))
+
 
 op_points <- lapply(list(limma_ex_2_2, dodr_ex_2_2),
        function(d) {
@@ -805,15 +808,15 @@ op_points <- lapply(list(limma_ex_2_2, dodr_ex_2_2),
        }) %>% 
   bind_rows
 
-ggplot(dfS3, aes(x=x, y = y, color=method, linetype=factor(amp_cutoff))) + geom_line(size=0.5) + 
-  geom_point(shape=21, fill="white", data=op_points, stroke=0.75, show.legend = FALSE) +
+ggplot(dfS3_3, aes(x=x, y = y, color=method, linetype=factor(amp_cutoff))) + geom_line(size=0.5) + 
+  geom_point(shape=21, fill="white", data=filter(op_points, dset=="high"), stroke=0.75, show.legend = FALSE) +
   facet_grid(cols = vars(factor(dset, levels = c("low", "high"))), 
-             labeller = as_labeller(c(low = "Target: all true DiffR transcripts", 
-                                      high = "Target: large ampl. true DiffR transcripts"))) + 
-  scale_linetype_manual(name=parse(text = 'A[cutoff]'), labels=amp_choices, 
-                        values = c("solid", "longdash")) + 
+             labeller = as_labeller(c(low = sprintf("Target: all %d true DiffR transcripts", length(rhythmic_in_A)), 
+                                      high = sprintf("Target: %s large ampl. true DiffR transcripts", length(rhythmic_in_A_large_amp))))) + 
+scale_linetype_manual(name=parse(text = 'A[cutoff]'), labels=amp_choices, 
+                        values = c("longdash", "solid")) + 
   scale_color_tableau(name="", palette = "Classic Green-Orange 6") + 
-  theme(legend.title.align = 0, legend.justification = 0,
+  theme(legend.title.align = 0, legend.justification = 0.35,
                                           legend.margin = margin(r=1.5, unit = "lines")) +
   guides(color= guide_legend(order = 1), linetype=guide_legend(order = 2)) +
   labs(x = "true DiffR transcripts recovered", y = "true DiffR transcripts in DiffR calls")
@@ -853,9 +856,6 @@ results_emahan_modsel <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "mod_
                                       just_classify = FALSE) %>%
             inner_join(as.data.frame(rowData(se))[c(1,2,3)], 
                         by=c("id"="ensembl_gene_id"))
-
-results_emahan_dodr <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "dodr", 
-                                      just_classify = FALSE)
 
 compare_results_nutr_1 <- full_join(results_emahan_modsel[c("id", "category")], 
                          results_emahan[c("id", "category")], by="id",
@@ -899,9 +899,9 @@ results_quag <- compareRhythms(y_nutr_2, exp_des_nutr_2, method = "voom",
                            just_classify = FALSE, outliers = TRUE, robust = TRUE) %>%
             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("id"="ensembl_gene_id"))
 
-y <- edgeR::DGEList(y_nutr_2) %>% edgeR::calcNormFactors()
+y_quag <- edgeR::DGEList(y_nutr_2) %>% edgeR::calcNormFactors()
 
-results_quag_modsel <- compareRhythms(edgeR::cpm(y, log=TRUE), exp_des_nutr_2, method = "mod_sel", 
+results_quag_modsel <- compareRhythms(edgeR::cpm(y_quag, log=TRUE), exp_des_nutr_2, method = "mod_sel", 
                            just_classify = FALSE) %>%
             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("id"="ensembl_gene_id"))
 
@@ -985,22 +985,26 @@ data_quag <- y_nutr_2_abund[hfd_genes_ensembl$id,] %>%
            separate(sample, c("grp", "time"), "_", convert = TRUE) %>% 
            mutate(type = "quag")
 
-df4_5 <- bind_rows(data_eckel, data_quag)
+df4_5 <- bind_rows(data_eckel, data_quag) %>%
+         mutate(col = recode(type, !!!setNames(tableau_color_pal(palette = "Superfishel Stone")(2), c("eckel-mahan", "quag")))) %>%
+         mutate(col = ifelse(grp =="control", "grey50", col))
 
 label_one <- function(labels) return(list(labels$id))
           
-f4_5 <- ggplot(df4_5, aes(time, value, linetype=grp, color=type)) + 
+f4_5 <- ggplot(df4_5, aes(time, value, color=col)) + 
   geom_point(size = 0.3) +
   geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75) +
   facet_wrap(~ id + type, scales = "free_y", ncol = 6, labeller = label_one) + 
-  theme_custom(base_size = 9) + scale_color_tableau(name=NULL, palette="Superfishel Stone", 
-                                                    labels = c("Eckel-Mahan", "Quagliarini")) + 
-  scale_linetype_manual(values = c("dashed","solid"), name=NULL) + 
+  theme_custom(base_size = 9) + 
+  scale_color_identity(name="", 
+                       breaks=c("grey50", tableau_color_pal(palette = "Superfishel Stone")(2)),
+                       labels=c("control","HFD (Eckel-Mahan)","HFD (Quagliarini)"),
+                       guide="legend") + 
   scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
   theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
         panel.spacing = unit(8, "pt"), legend.margin = margin(t=-5),
         strip.text = element_text(face="italic")) +
-  xlab("Zeitgeber time") + ylab(expression(log[2]~expression)) + guides(color="none")
+  xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
 
 ```
 
@@ -1045,9 +1049,11 @@ f4_3 <- ggplot(data=df4_3) +
   geom_text(aes(x=x,y=y), label="phase difference\n(HFD - control)", 
             data=data.frame(x=Inf, y=8*pi/12,source=factor("1", levels = c("1","2"))),
             vjust=2, hjust=0, size=8*5/14) +
+  geom_text(aes(x=x,y=y), label=expression(atop("amplitude change", log[2]~frac(HFD,control))), 
+            data=data.frame(x=Inf, y=0, source=factor("1", levels = c("1","2"))),
+            vjust=0.5, hjust=-0.5, size=8*5/14) +
   coord_polar(theta="y", start=-pi, clip = "off") + 
   scale_color_tableau(palette="Superfishel Stone")
-
 
 ```
 
@@ -1075,31 +1081,55 @@ reactome_2 <- enricher(results_quag$mgi_symbol[results_quag$diff_rhythmic], univ
 ```{r Figure4, fig.height=7.75, fig.width=6.5}
 #grid.arrange(f4_1, f4_2, f4_3, layout_matrix=matrix(1:4, ncol=2, byrow=TRUE))
 
-layout <- c(area(1,1,1,2), area(1,3), area(2,1,2,3), area(3,1), area(3,2,3,3))
+layout <- c(area(1,1,1,2), area(1,3), area(2,1,2,2), area(2,3),  area(3,1,3,3))
 
-f4_1 + f4_2 + f4_5 + gtable_cbind(f4_4_1, f4_4_2) + f4_3 + 
-  plot_layout(design = layout, heights = c(1,1.4,1.1), widths = c(1.2,0.5,1)) + 
+f4_1 + f4_2 + wrap_elements(full = f4_3) + gtable_cbind(f4_4_1, f4_4_2) + f4_5 +
+  plot_layout(design = layout, heights = c(1,1.1,1.4), widths = c(1,0.5,1)) + 
   plot_annotation(tag_levels = "A")
 
-write.xlsx(list(results_emahan, results_emahan_dodr, results_emahan_modsel, results_quag, results_quag), file="HFD_DiffR_analysis.xlsx", 
+write.xlsx(list(results_emahan, results_emahan_modsel, results_quag, results_quag_modsel), file="HFD_DiffR_analysis.xlsx", 
            creator = "Bharath Ananthasubramaniam", 
            asTable = c(TRUE, TRUE, TRUE, TRUE, TRUE),
-           sheetName = c("Hyp. testing - E-Mahan (limma)", "Hyp. testing - E-Mahan (DODR)", "Model selection - E-Mahan", "Hyp. testing - Quagliarini", "Model selection - Quagliarini"),
+           sheetName = c("Hyp. testing - E-Mahan (limma)", "Model selection - E-Mahan", "Hyp. testing - Quagliarini", "Model selection - Quagliarini"),
            borders = rep("surrounding",4))
 ```
 
-```{r FigureS4, fig.width=7, fig.height=4.5}
-dfS4_1 <- bind_rows(data.frame(method="DODR", fdr=results_emahan_dodr$adj_p_val_dodr),
-          data.frame(method="limma", fdr=results_emahan$adj_p_val_DR)) %>%
-          group_by(method) %>%
-          mutate(len=length(fdr))
+```{r FigureS4, fig.width=7.5, fig.height=5}
+results_emahan_all_amp <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "limma",
+                                         amp_cutoff = 0)
 
-fS4_1 <- ggplot(data = dfS4_1) + stat_ecdf(aes(x=fdr, len=len, y=..y..*len,
-                                        color=factor(method)), geom = "step", size=0.75, pad=FALSE) +
-     xlab("false discovery rate") + ylab("number of DiffR transcripts") +
-     coord_cartesian(xlim = c(0,0.5), ylim = c(0, 1300)) + 
-     scale_color_tableau(name="", palette = "Classic Green-Orange 6") +
-     theme(legend.position = "top")
+results_emahan_modsel_all_amp <- compareRhythms(y_nutr_1, exp_des_nutr_1, method = "mod_sel",
+                                                amp_cutoff = 0)
+
+results_quag_all_amp <- compareRhythms(y_nutr_2, exp_des_nutr_2, method = "voom", 
+                                       amp_cutoff = 0, outliers = TRUE, robust = TRUE) 
+
+results_quag_modsel_all_amp <- compareRhythms(edgeR::cpm(y_quag, log=TRUE), exp_des_nutr_2, 
+                                              method = "mod_sel", amp_cutoff = 0)
+
+dfS4_1 <- data.frame(source = rep(c("Eckel-Mahan", "Quagliarini"), each=4),
+                 category = rep(c("DR", "ABR"), 4),
+                 method = rep(c("hypothesis testing", "model selection"), 2, each=2),
+                 counts = c(table(results_emahan_all_amp$category == "same"),
+                            table(results_emahan_modsel_all_amp[results_emahan_modsel_all_amp$category !="arrhy", "category"] == "same"),
+                            table(results_quag_all_amp$category == "same"),
+                            table(results_quag_modsel_all_amp[results_quag_modsel_all_amp$category !="arrhy", "category"] == "same"))) %>%
+      group_by(source, method) %>%
+      mutate(fraction = counts/sum(counts),
+             total = sum(counts))
+
+fS4_1 <- ggplot(subset(dfS4_1, category=="DR")) +
+  geom_col(aes(x=method, y=total, color=source), fill="white", width = 0.55) +
+  geom_col(aes(x=method, y=counts, fill=source), width = 0.55) +
+  facet_wrap(~source, nrow=1) +
+  geom_text(aes(x=method, y=counts, label=scales::percent(fraction, accuracy = 1),), 
+            vjust=-0.5, data = subset(dfS4_1, category=="DR"), size=5/14*7)+
+  scale_fill_tableau(palette="Superfishel Stone") + guides(color="none") +
+  scale_color_tableau(palette="Superfishel Stone") +
+  theme(strip.text = element_blank(), legend.key.height = unit(0.25, "lines"),
+        legend.spacing.x = unit(0.5, "lines")) +
+  scale_x_discrete(labels = scales::wrap_format(10)) +
+  labs(x="", y="no. of rhythmic transcripts", fill="Data")
 
 tt <- ttheme_minimal(colhead=list(fg_params=list(fontface="bold"),
                                   bg_params=list(fill=tableau_color_pal(palette="Superfishel Stone")(2)[1]),
@@ -1162,8 +1192,10 @@ dfS4_6 <- tableGrob(table(compare_results_nutr_4[,-1]), theme = tt) %>%
             gtable_add_grob(col_title, t=1, l=1, r=ncol(.), b=1) %>%
             gtable_add_padding(unit(10,"pt"))
 
+layout <- c(area(1,1,1,2), area(1,3), area(1,4), area(2,1), area(2,2,2,3), area(2,4))
 
-fS4_1 + wrap_elements(panel=dfS4_2) + wrap_elements(panel=dfS4_3) + wrap_elements(plot=dfS4_4) + wrap_elements(panel=fS4_5) + wrap_elements(panel=dfS4_6) + plot_layout(nrow = 2, ncol=3, heights =  c(0.72,1), widths = c(0.8,1,1)) + plot_annotation(tag_levels = 'A')
+
+fS4_1 + wrap_elements(panel=dfS4_2) + wrap_elements(panel=dfS4_3) + wrap_elements(plot=dfS4_4) + wrap_elements(panel=fS4_5) + wrap_elements(panel=dfS4_6) + plot_layout(design = layout, heights =  c(0.75,1), widths = c(1,0.2,1,1)) + plot_annotation(tag_levels = 'A')
   
 ```
 
@@ -1189,9 +1221,6 @@ y_keto <- y_keto[keep, ]
 results_keto <- compareRhythms(y_keto, exp_des_keto, method = "limma", 
                             just_classify = FALSE) %>% 
              inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("id"="ensembl_gene_id"))
-results_keto_dodr <- compareRhythms(y_keto, exp_des_keto, method = "dodr", 
-                            just_classify = FALSE) %>% 
-             inner_join(as.data.frame(rowData(se))[c(1,2,3)], by=c("id"="ensembl_gene_id")) 
 
 results_keto_modsel <- compareRhythms(y_keto, exp_des_keto, method = "mod_sel", 
                             just_classify = FALSE) %>% 
@@ -1277,12 +1306,13 @@ df5_4 <- y_keto[ifng_genes_ensembl$id,] %>%
            gather(sample, value, -id) %>% 
            separate(sample, c("grp", "time"), "_", convert = TRUE)
 
-f5_4 <- ggplot(df5_4, aes(time, value, linetype=grp)) + 
+f5_4 <- ggplot(df5_4, aes(time, value, color=grp)) + 
   geom_point(size = 0.3) +
-  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75) +
   facet_wrap(~ id, scales = "free_y", ncol = 6) + 
-  theme_custom(base_size = 9) + scale_linetype_manual(values = c("dashed","solid"), name=NULL, 
-                                                      labels=c("control","KD")) + 
+  theme_custom(base_size = 9) + 
+  scale_color_manual(name=NULL, values = c("grey50", "black"),
+                     labels=c("control","KD")) +
   scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
   theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
         panel.spacing.x = unit(8, "pt"), legend.box.margin = margin(b =-5), 
@@ -1298,18 +1328,30 @@ f5_1 + f5_2 + gtable_rbind(f5_3_1, f5_3_2) + f5_4 + plot_layout(design = layout,
 
 
 ```{r FigureS5, fig.height=4, fig.width=4.75}
-dfS5_1 <- bind_rows(data.frame(category = table(results_keto_dodr$category), 
-                              method = "DODR", 10),
-                   data.frame(category = table(results_keto$category), 
-                              method = "limma", 10)) %>%
-         rename(category = category.Var1, freq = category.Freq)
+results_keto_all_amp <- compareRhythms(y_keto, exp_des_keto, method = "limma", 
+                            amp_cutoff = 0) 
 
-fS5_1 <- ggplot(dfS5_1) +
-  geom_col(aes(x=category, y=freq, fill=method), position = "dodge", width = 0.5) + 
-  scale_fill_tableau(name="", palette = "Classic Green-Orange 6") +
-  theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
-        legend.justification = "center", 
-        legend.box.margin = margin(-5,0,0,0)) + ylab("number of transcripts") + xlab("")
+results_keto_modsel_all_amp <- compareRhythms(y_keto, exp_des_keto, method = "mod_sel", 
+                            amp_cutoff = 0)
+
+dfS5_1 <- data.frame(category = rep(c("DR", "ABR"), 2),
+                 method = rep(c("hypothesis testing", "model selection"), each=2),
+                 counts = c(table(results_keto_all_amp$category == "same"),
+                            table(results_keto_modsel_all_amp[results_keto_modsel_all_amp$category !="arrhy", "category"] == "same"))) %>%
+      group_by(method) %>%
+      mutate(fraction = counts/sum(counts),
+             total = sum(counts))
+
+fS5_1 <- ggplot(subset(dfS5_1, category=="DR")) +
+  geom_col(aes(x=method, y=total, color=method), fill="white", width = 0.55) +
+  geom_col(aes(x=method, y=counts, fill=method), width = 0.55) +
+  geom_text(aes(x=method, y=counts, label=scales::percent(fraction, accuracy = 1),), 
+            vjust=-0.5, data = subset(dfS5_1, category=="DR"), size=5/14*7)+
+  scale_fill_colorblind() + guides(color="none") +
+  scale_color_colorblind() +
+  theme(strip.text = element_blank(), legend.position = "none") +
+  scale_x_discrete(labels = scales::wrap_format(10)) +
+  labs(x="", y="no. of rhythmic transcripts", fill="Data")
 
 compare_results_keto <- full_join(results_keto_modsel[c("id", "category")], 
                          results_keto[c("id", "category")], by="id",
@@ -1466,11 +1508,11 @@ dfS6_4 <- y_keto_iec[keto_iec_ensembl$id,] %>%
            gather(sample, value, -id) %>% 
            separate(sample, c("grp", "time"), "_", convert = TRUE)
 
-fS6_4 <- ggplot(dfS6_4, aes(time, value, linetype=grp)) + 
+fS6_4 <- ggplot(dfS6_4, aes(time, value, color=grp)) + 
   geom_point(size = 0.3) +
-  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75) +
   facet_wrap(~ id, scales = "free_y", ncol = 6) + 
-  theme_custom(base_size = 9) + scale_linetype_manual(values = c("dashed","solid"), 
+  theme_custom(base_size = 9) + scale_color_manual(values = c("grey50","black"), 
                                                       name=NULL, labels=c("control","KD")) + 
   scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
   theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
@@ -1479,10 +1521,10 @@ fS6_4 <- ggplot(dfS6_4, aes(time, value, linetype=grp)) +
         strip.text = element_text(face="italic")) +
   xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
 
-write.xlsx(list(results_keto, results_keto_dodr, results_keto_modsel, results_keto_iec, results_keto_iec_dodr, results_keto_iec_modsel), file="KD_DiffR_analysis.xlsx", 
+write.xlsx(list(results_keto, results_keto_modsel, results_keto_iec, results_keto_iec_modsel), file="KD_DiffR_analysis.xlsx", 
            creator = "Bharath Ananthasubramaniam", 
            asTable = c(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-           sheetName = c("Hyp. testing - liver (limma)", "Hyp. testing - liver (DODR)", "Model selection - liver", "Hyp. testing - IEC (limma)", "Hyp. testing - IEC (DODR)", "Model selection - IEC"),
+           sheetName = c("Hyp. testing - liver (limma)", "Model selection - liver", "Hyp. testing - IEC (limma)", "Model selection - IEC"),
            borders = rep("surrounding",4))
 
 layout <- c(area(1,1), area(1,2), area(1,3), area(2,1,2,3))
@@ -1602,21 +1644,21 @@ df6_4 <- y_pei_abund[kras_genes_ensembl$id,] %>%
            separate(sample, c("grp", "time"), "_", convert = TRUE) %>%
            mutate(grp = fct_relevel(grp, "WT"))
 
-f6_4 <- ggplot(df6_4, aes(time, value, linetype=grp)) + 
+f6_4 <- ggplot(df6_4, aes(time, value, color=grp)) + 
   geom_point(size = 0.3) +
-  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75, color="black") +
+  geom_smooth(formula = 'y~x', method = "loess", size=0.4, se=FALSE, span=0.75) +
   facet_wrap(~ id, scales = "free_y", ncol = 6, labeller = label_one) + 
-  theme_custom(base_size = 9)  + scale_linetype_manual(values = c("dashed","solid"), name=NULL, labels=c("control", expression(p66^Shc~KO))) + 
+  theme_custom(base_size = 9)  + scale_color_manual(values = c("grey50","black"), name=NULL, labels=c("control", expression(p66^Shc~KO))) + 
   scale_y_continuous(breaks = scales::breaks_extended(n=4)) +
   theme(axis.text = element_text(size=8), axis.ticks.length = unit(4, "pt"), 
         panel.spacing = unit(8, "pt"), legend.box.margin = margin(b=-5, t=-10),
         strip.text = element_text(face="italic")) +
   xlab("Zeitgeber time") + ylab(expression(log[2]~expression))
 
-write.xlsx(list(results_pei_deseq, results_pei, results_pei_modsel), file="p66KO_DiffR_analysis.xlsx", 
+write.xlsx(list(results_pei_deseq, results_pei_modsel), file="p66KO_DiffR_analysis.xlsx", 
            creator = "Bharath Ananthasubramaniam", 
            asTable = c(TRUE, TRUE, TRUE),
-           sheetName = c("Hypothesis testing (DESeq2)", "Hypothesis testing (voom)", "Model selection"),
+           sheetName = c("Hypothesis testing", "Model selection"),
            borders = rep("surrounding",4))
 
 layout <- c(area(1,1), area(1,2), area(1,3), area(2,1,2,3))
@@ -1625,16 +1667,30 @@ f6_1 + f6_2 + gtable_rbind(f6_3_1, f6_3_2) + f6_4 + plot_layout(design = layout,
 ```
 
 ```{r FigureS7,fig.height=4, fig.width=4.75}
-dfS7_1 <- bind_rows(data.frame(category = table(results_pei_deseq$category), method = "DESeq2"),
-                   data.frame(category = table(results_pei$category), method = "voom")) %>%
-         rename(category = category.Var1, freq = category.Freq)
+results_pei_deseq_all_amp <- compareRhythms(counts[keep,], exp_design = exp_des_pei, 
+                                    lengths = lengths[keep,], method = "deseq2", amp_cutoff = 0)
 
-fS7_1 <- ggplot(dfS7_1) +
-  geom_col(aes(x=category, y=freq, fill=method), position = "dodge", width=0.5) + 
-  scale_fill_tableau(name="", palette = "Classic Green-Orange 6") +
-  theme(legend.title = element_blank(), legend.key.size = unit(0.75,"line"),
-        legend.justification = "left", legend.box.margin=margin(b=-5), legend.margin = margin()) + 
-  ylab("number of transcripts") + xlab("")
+results_pei_modsel_all_amp <- compareRhythms(expr_pei, exp_des_pei, method = "mod_sel", 
+                           amp_cutoff = 0)
+
+dfS7_1 <- data.frame(category = rep(c("DR", "ABR"), 2),
+                 method = rep(c("hypothesis testing", "model selection"), each=2),
+                 counts = c(table(results_pei_deseq_all_amp$category == "same"),
+                            table(results_pei_modsel_all_amp[results_pei_modsel_all_amp$category !="arrhy", "category"] == "same"))) %>%
+      group_by(method) %>%
+      mutate(fraction = counts/sum(counts),
+             total = sum(counts))
+
+fS7_1 <- ggplot(subset(dfS7_1, category=="DR")) +
+  geom_col(aes(x=method, y=total, color=method), fill="white", width = 0.55) +
+  geom_col(aes(x=method, y=counts, fill=method), width = 0.55) +
+  geom_text(aes(x=method, y=counts, label=scales::percent(fraction, accuracy = 1),), 
+            vjust=-0.5, data = subset(dfS7_1, category=="DR"), size=5/14*7)+
+  scale_fill_colorblind() + guides(color="none") +
+  scale_color_colorblind() +
+  theme(strip.text = element_blank(), legend.position = "none") +
+  scale_x_discrete(labels = scales::wrap_format(10)) +
+  labs(x="", y="no. of rhythmic transcripts", fill="Data")
 
 compare_results_pei <- full_join(results_pei_modsel[c("id", "category")], 
                          results_pei_deseq[c("id", "category")], by="id",
