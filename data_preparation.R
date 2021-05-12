@@ -242,3 +242,42 @@ data <- SummarizedExperiment(assays = list(counts = counts, countsFromAbundance 
                              rowData = row_data[rownames(counts), ])
 
 saveRDS(data, file = paste0("data/", GEO, ".RDS"), compress = "gzip")
+
+
+####----combining WT datasets (HFD, KD) from two different experiments------####
+
+GEO1 <- "GSE52333"
+geo1 <- get_geo(GEO1)
+raw_file_name1 <- get_raw_files(GEO1)
+
+GEO2 <- "GSE87425"
+geo2 <- get_geo(GEO2)
+raw_file_name2 <- get_raw_files(GEO2)
+
+cel_files1 <- as.character(colData(geo1)[["supplementary_file"]])
+cel_files2 <- as.character(colData(geo2)[["supplementary_file"]])
+
+err_file_name <- cel_files1[grepl("GSM1263252", cel_files1)]
+cel_files1[grepl("GSM1263252", cel_files1)] <- sub("pli[\\w\\-\\.]+", "CEL.gz", sub("bA", "bB", err_file_name), perl=TRUE)
+
+
+cel_files1 <- sapply(cel_files1, basename)
+cel_files2 <- sapply(cel_files2, basename)
+
+cel_files1_full <- paste(dirname(raw_file_name1), cel_files1, sep="/")
+cel_files2_full <- paste(dirname(raw_file_name2), cel_files2, sep="/")
+
+raw_data <- oligo::read.celfiles(c(cel_files1_full, cel_files2_full),
+                                 pkgname = "pd.mogene10st.mm.ensg")
+
+eset <- oligo::rma(raw_data)
+col_data1 <- colData(geo1) %>% subset(select = c(diet.ch1, tissue.ch1, harvest.timepoint.ch1))
+col_data1$harvest.timepoint.ch1 <- as.numeric(sub("ZT", "", col_data1$harvest.timepoint.ch1))
+col_data1$zt.ch1 <- col_data1$harvest.timepoint.ch1
+col_data1$harvest.timepoint.ch1 <- NULL
+col_data2 <- colData(geo2) %>% subset(select = c(diet.ch1, tissue.ch1, zt.ch1))
+geo <- SummarizedExperiment(colData = rbind(col_data1, col_data2))
+
+data <- update_se(geo, eset)
+data <- subset(data, select = colData(data)$tissue.ch1 %in% c("liver", "LIVER") & colData(data)$diet.ch1 %in% c("normal chow", "Norma Chow"))
+saveRDS(data, file = paste0("data/", "WT_compare", ".RDS"), compress = "gzip")
